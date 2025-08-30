@@ -10,8 +10,14 @@ WORKDIR /app
 # Copy everything first to ensure we have all files
 COPY . .
 
-# Download dependencies and generate go.sum if needed
-RUN go mod download && go mod verify
+# Debug: Check what files are present
+RUN ls -la
+
+# Debug: Check if go.mod exists and its contents
+RUN cat go.mod || echo "go.mod not found"
+
+# Initialize the module if needed and download dependencies
+RUN go mod tidy && go mod download && go mod verify
 
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o monitor-agent ./cmd/monitor-agent
