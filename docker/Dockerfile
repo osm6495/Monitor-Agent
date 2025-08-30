@@ -7,14 +7,11 @@ RUN apk add --no-cache git ca-certificates tzdata
 # Set working directory
 WORKDIR /app
 
-# Copy go mod file first
-COPY go.mod ./
-
-# Download dependencies and generate go.sum
-RUN go mod download && go mod verify
-
-# Copy source code
+# Copy everything first to ensure we have all files
 COPY . .
+
+# Download dependencies and generate go.sum if needed
+RUN go mod download && go mod verify
 
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o monitor-agent ./cmd/monitor-agent
