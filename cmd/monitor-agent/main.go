@@ -18,10 +18,6 @@ import (
 func main() {
 	// Load configuration
 	cfg, err := config.Load()
-	// Debug: Log the database configuration
-	logrus.Infof("Database config - Host: '%s', Port: %d, Name: '%s', User: '%s'",
-		cfg.Database.Host, cfg.Database.Port, cfg.Database.Name, cfg.Database.User)
-	logrus.Infof("Database DSN: %s", cfg.GetDSN())
 	if err != nil {
 		logrus.Errorf("Failed to load configuration: %v", err)
 		os.Exit(1)
