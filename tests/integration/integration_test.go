@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/monitor-agent/internal/config"
 	"github.com/monitor-agent/internal/database"
 	"github.com/monitor-agent/internal/discovery/chaosdb"
@@ -215,4 +216,200 @@ func TestFullWorkflowIntegration(t *testing.T) {
 	stats, err := monitorService.GetProgramStats(ctx)
 	require.NoError(t, err)
 	assert.NotNil(t, stats)
+}
+
+func TestConfigurationValidationIntegrationComprehensive(t *testing.T) {
+	tests := []struct {
+		name        string
+		config      *config.Config
+		expectError bool
+	}{
+		{
+			name: "InvalidDatabaseConfiguration",
+			config: &config.Config{
+				Database: config.DatabaseConfig{
+					Host:            "localhost",
+					Port:            99999, // Invalid port
+					Name:            "test_db",
+					User:            "test_user",
+					Password:        "password",
+					SSLMode:         "disable",
+					ConnectTimeout:  30 * time.Second,
+					MaxOpenConns:    25,
+					MaxIdleConns:    5,
+					ConnMaxLifetime: 5 * time.Minute,
+				},
+				APIs: config.APIConfig{
+					HackerOne: config.HackerOneConfig{
+						APIKey:    "h1_key",
+						RateLimit: 550,
+					},
+					BugCrowd: config.BugCrowdConfig{
+						APIKey:    "bc_key",
+						RateLimit: 55,
+					},
+					ChaosDB: config.ChaosDBConfig{
+						APIKey:    "cd_key",
+						RateLimit: 55,
+					},
+				},
+				App: config.AppConfig{
+					LogLevel:    "info",
+					Environment: "development",
+				},
+				HTTP: config.HTTPConfig{
+					Timeout:       30 * time.Second,
+					RetryAttempts: 3,
+					RetryDelay:    1 * time.Second,
+				},
+				Discovery: config.DiscoveryConfig{
+					BulkSize: 100,
+				},
+			},
+			expectError: true,
+		},
+		{
+			name: "InvalidAPIConfiguration",
+			config: &config.Config{
+				Database: config.DatabaseConfig{
+					Host:            "localhost",
+					Port:            5432,
+					Name:            "test_db",
+					User:            "test_user",
+					Password:        "password",
+					SSLMode:         "disable",
+					ConnectTimeout:  30 * time.Second,
+					MaxOpenConns:    25,
+					MaxIdleConns:    5,
+					ConnMaxLifetime: 5 * time.Minute,
+				},
+				APIs: config.APIConfig{
+					HackerOne: config.HackerOneConfig{
+						APIKey:    "", // Missing API key
+						RateLimit: 550,
+					},
+					BugCrowd: config.BugCrowdConfig{
+						APIKey:    "bc_key",
+						RateLimit: 55,
+					},
+					ChaosDB: config.ChaosDBConfig{
+						APIKey:    "cd_key",
+						RateLimit: 55,
+					},
+				},
+				App: config.AppConfig{
+					LogLevel:    "info",
+					Environment: "development",
+				},
+				HTTP: config.HTTPConfig{
+					Timeout:       30 * time.Second,
+					RetryAttempts: 3,
+					RetryDelay:    1 * time.Second,
+				},
+				Discovery: config.DiscoveryConfig{
+					BulkSize: 100,
+				},
+			},
+			expectError: true,
+		},
+		{
+			name: "InvalidHTTPConfiguration",
+			config: &config.Config{
+				Database: config.DatabaseConfig{
+					Host:            "localhost",
+					Port:            5432,
+					Name:            "test_db",
+					User:            "test_user",
+					Password:        "password",
+					SSLMode:         "disable",
+					ConnectTimeout:  30 * time.Second,
+					MaxOpenConns:    25,
+					MaxIdleConns:    5,
+					ConnMaxLifetime: 5 * time.Minute,
+				},
+				APIs: config.APIConfig{
+					HackerOne: config.HackerOneConfig{
+						APIKey:    "h1_key",
+						RateLimit: 550,
+					},
+					BugCrowd: config.BugCrowdConfig{
+						APIKey:    "bc_key",
+						RateLimit: 55,
+					},
+					ChaosDB: config.ChaosDBConfig{
+						APIKey:    "cd_key",
+						RateLimit: 55,
+					},
+				},
+				App: config.AppConfig{
+					LogLevel:    "info",
+					Environment: "development",
+				},
+				HTTP: config.HTTPConfig{
+					Timeout:       -1 * time.Second, // Invalid timeout
+					RetryAttempts: 3,
+					RetryDelay:    1 * time.Second,
+				},
+				Discovery: config.DiscoveryConfig{
+					BulkSize: 100,
+				},
+			},
+			expectError: true,
+		},
+		{
+			name: "InvalidDiscoveryConfiguration",
+			config: &config.Config{
+				Database: config.DatabaseConfig{
+					Host:            "localhost",
+					Port:            5432,
+					Name:            "test_db",
+					User:            "test_user",
+					Password:        "password",
+					SSLMode:         "disable",
+					ConnectTimeout:  30 * time.Second,
+					MaxOpenConns:    25,
+					MaxIdleConns:    5,
+					ConnMaxLifetime: 5 * time.Minute,
+				},
+				APIs: config.APIConfig{
+					HackerOne: config.HackerOneConfig{
+						APIKey:    "h1_key",
+						RateLimit: 550,
+					},
+					BugCrowd: config.BugCrowdConfig{
+						APIKey:    "bc_key",
+						RateLimit: 55,
+					},
+					ChaosDB: config.ChaosDBConfig{
+						APIKey:    "cd_key",
+						RateLimit: 55,
+					},
+				},
+				App: config.AppConfig{
+					LogLevel:    "info",
+					Environment: "development",
+				},
+				HTTP: config.HTTPConfig{
+					Timeout:       30 * time.Second,
+					RetryAttempts: 3,
+					RetryDelay:    1 * time.Second,
+				},
+				Discovery: config.DiscoveryConfig{
+					BulkSize: 0, // Invalid bulk size
+				},
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }

@@ -35,7 +35,6 @@ services:
       # Application Configuration
       LOG_LEVEL: ${LOG_LEVEL:-info}
       ENVIRONMENT: ${ENVIRONMENT:-production}
-      CRON_SCHEDULE: ${CRON_SCHEDULE:-"0 */6 * * *"}
       
       # HTTP Client Configuration
       HTTP_TIMEOUT: ${HTTP_TIMEOUT:-30s}
@@ -44,8 +43,7 @@ services:
       
       # Discovery Configuration
       CHAOSDB_BULK_SIZE: ${CHAOSDB_BULK_SIZE:-100}
-      DISCOVERY_CONCURRENT_LIMIT: ${DISCOVERY_CONCURRENT_LIMIT:-10}
-    restart: unless-stopped
+    restart: "no"
     volumes:
       - ./logs:/app/logs
 

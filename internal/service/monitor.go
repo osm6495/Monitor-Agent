@@ -37,29 +37,48 @@ func NewMonitorService(cfg *config.Config, db *sqlx.DB) *MonitorService {
 
 	// Initialize platform factory
 	platformFactory := platforms.NewPlatformFactory()
-	platformFactory.RegisterPlatform("hackerone", &platforms.PlatformConfig{
-		APIKey:        cfg.APIs.HackerOne.APIKey,
-		RateLimit:     cfg.APIs.HackerOne.RateLimit,
-		Timeout:       cfg.HTTP.Timeout,
-		RetryAttempts: cfg.HTTP.RetryAttempts,
-		RetryDelay:    cfg.HTTP.RetryDelay,
-	})
-	platformFactory.RegisterPlatform("bugcrowd", &platforms.PlatformConfig{
-		APIKey:        cfg.APIs.BugCrowd.APIKey,
-		RateLimit:     cfg.APIs.BugCrowd.RateLimit,
-		Timeout:       cfg.HTTP.Timeout,
-		RetryAttempts: cfg.HTTP.RetryAttempts,
-		RetryDelay:    cfg.HTTP.RetryDelay,
-	})
 
-	// Initialize ChaosDB client
-	chaosDBClient := chaosdb.NewClient(&chaosdb.ClientConfig{
-		APIKey:        cfg.APIs.ChaosDB.APIKey,
-		RateLimit:     cfg.APIs.ChaosDB.RateLimit,
-		Timeout:       cfg.HTTP.Timeout,
-		RetryAttempts: cfg.HTTP.RetryAttempts,
-		RetryDelay:    cfg.HTTP.RetryDelay,
-	})
+	// Only register platforms that have API keys configured
+	if cfg.HasHackerOneConfig() {
+		platformFactory.RegisterPlatform("hackerone", &platforms.PlatformConfig{
+			APIKey:        cfg.APIs.HackerOne.APIKey,
+			RateLimit:     cfg.APIs.HackerOne.RateLimit,
+			Timeout:       cfg.HTTP.Timeout,
+			RetryAttempts: cfg.HTTP.RetryAttempts,
+			RetryDelay:    cfg.HTTP.RetryDelay,
+		})
+		logrus.Info("HackerOne platform configured")
+	} else {
+		logrus.Warn("HackerOne API key not provided, skipping HackerOne platform")
+	}
+
+	if cfg.HasBugCrowdConfig() {
+		platformFactory.RegisterPlatform("bugcrowd", &platforms.PlatformConfig{
+			APIKey:        cfg.APIs.BugCrowd.APIKey,
+			RateLimit:     cfg.APIs.BugCrowd.RateLimit,
+			Timeout:       cfg.HTTP.Timeout,
+			RetryAttempts: cfg.HTTP.RetryAttempts,
+			RetryDelay:    cfg.HTTP.RetryDelay,
+		})
+		logrus.Info("BugCrowd platform configured")
+	} else {
+		logrus.Warn("BugCrowd API key not provided, skipping BugCrowd platform")
+	}
+
+	// Initialize ChaosDB client (only if API key is provided)
+	var chaosDBClient *chaosdb.Client
+	if cfg.HasChaosDBConfig() {
+		chaosDBClient = chaosdb.NewClient(&chaosdb.ClientConfig{
+			APIKey:        cfg.APIs.ChaosDB.APIKey,
+			RateLimit:     cfg.APIs.ChaosDB.RateLimit,
+			Timeout:       cfg.HTTP.Timeout,
+			RetryAttempts: cfg.HTTP.RetryAttempts,
+			RetryDelay:    cfg.HTTP.RetryDelay,
+		})
+		logrus.Info("ChaosDB client configured")
+	} else {
+		logrus.Warn("ChaosDB API key not provided, ChaosDB discovery will be disabled")
+	}
 
 	return &MonitorService{
 		config:          cfg,
@@ -79,7 +98,8 @@ func (s *MonitorService) RunFullScan(ctx context.Context) error {
 	// Get all platforms
 	platformList := s.platformFactory.GetAllPlatforms()
 	if len(platformList) == 0 {
-		return fmt.Errorf("no platforms configured")
+		logrus.Warn("No platforms configured with API keys. Please provide at least one API key (HACKERONE_API_KEY, BUGCROWD_API_KEY, or CHAOSDB_API_KEY) to perform scans.")
+		return fmt.Errorf("no platforms configured with API keys")
 	}
 
 	var wg sync.WaitGroup
@@ -265,6 +285,11 @@ func (s *MonitorService) discoverProgramAssets(ctx context.Context, program *dat
 
 // discoverWithChaosDB discovers additional subdomains using ChaosDB
 func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid.UUID, domains []string) ([]*database.Asset, error) {
+	if s.chaosDBClient == nil {
+		logrus.Warn("ChaosDB client not configured, skipping discovery")
+		return nil, nil
+	}
+
 	logrus.Infof("Starting ChaosDB discovery for %d domains", len(domains))
 
 	// Use bulk discovery for efficiency
@@ -420,7 +445,8 @@ func (s *MonitorService) CheckDatabaseHealth(ctx context.Context) error {
 func (s *MonitorService) CheckPlatformHealth(ctx context.Context) error {
 	platforms := s.platformFactory.GetAllPlatforms()
 	if len(platforms) == 0 {
-		return fmt.Errorf("no platforms configured")
+		logrus.Warn("No platforms configured with API keys, skipping platform health checks")
+		return nil
 	}
 
 	for _, platform := range platforms {
@@ -436,6 +462,11 @@ func (s *MonitorService) CheckPlatformHealth(ctx context.Context) error {
 
 // CheckChaosDBHealth checks ChaosDB service health
 func (s *MonitorService) CheckChaosDBHealth(ctx context.Context) error {
+	if s.chaosDBClient == nil {
+		logrus.Warn("ChaosDB client not configured, skipping ChaosDB health check")
+		return nil
+	}
+
 	if err := s.chaosDBClient.IsHealthy(ctx); err != nil {
 		return fmt.Errorf("ChaosDB health check failed: %w", err)
 	}

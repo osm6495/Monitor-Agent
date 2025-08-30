@@ -19,31 +19,26 @@ func TestLoad(t *testing.T) {
 		{
 			name: "valid configuration",
 			envVars: map[string]string{
-				"DB_HOST":                    "test-host",
-				"DB_PORT":                    "5433",
-				"DB_NAME":                    "test_db",
-				"DB_USER":                    "test_user",
-				"DB_PASSWORD":                "test_password",
-				"DB_SSL_MODE":                "require",
-				"HACKERONE_API_KEY":          "h1_key",
-				"HACKERONE_RATE_LIMIT":       "150",
-				"BUGCROWD_API_KEY":           "bc_key",
-				"BUGCROWD_RATE_LIMIT":        "200",
-				"CHAOSDB_API_KEY":            "cd_key",
-				"CHAOSDB_RATE_LIMIT":         "75",
-				"LOG_LEVEL":                  "debug",
-				"ENVIRONMENT":                "test",
-				"CRON_SCHEDULE":              "0 */12 * * *",
-				"HTTP_TIMEOUT":               "60s",
-				"HTTP_RETRY_ATTEMPTS":        "5",
-				"HTTP_RETRY_DELAY":           "2s",
-				"CHAOSDB_BULK_SIZE":          "200",
-				"DISCOVERY_CONCURRENT_LIMIT": "20",
+				"DB_HOST":             "test-host",
+				"DB_PORT":             "5432",
+				"DB_NAME":             "test_db",
+				"DB_USER":             "test_user",
+				"DB_PASSWORD":         "test_password",
+				"DB_SSL_MODE":         "require",
+				"HACKERONE_API_KEY":   "h1_key",
+				"BUGCROWD_API_KEY":    "bc_key",
+				"CHAOSDB_API_KEY":     "cd_key",
+				"LOG_LEVEL":           "debug",
+				"ENVIRONMENT":         "production",
+				"HTTP_TIMEOUT":        "60s",
+				"HTTP_RETRY_ATTEMPTS": "5",
+				"HTTP_RETRY_DELAY":    "2s",
+				"CHAOSDB_BULK_SIZE":   "200",
 			},
 			want: &Config{
 				Database: DatabaseConfig{
 					Host:            "test-host",
-					Port:            5433,
+					Port:            5432,
 					Name:            "test_db",
 					User:            "test_user",
 					Password:        "test_password",
@@ -51,38 +46,36 @@ func TestLoad(t *testing.T) {
 					SSLCert:         "",
 					SSLKey:          "",
 					SSLRootCert:     "",
-					ConnectTimeout:  30000000000, // 30s in nanoseconds
+					ConnectTimeout:  30 * time.Second,
 					MaxOpenConns:    25,
 					MaxIdleConns:    5,
-					ConnMaxLifetime: 300000000000, // 5m in nanoseconds
+					ConnMaxLifetime: 5 * time.Minute,
 				},
 				APIs: APIConfig{
 					HackerOne: HackerOneConfig{
 						APIKey:    "h1_key",
-						RateLimit: 150,
+						RateLimit: 550,
 					},
 					BugCrowd: BugCrowdConfig{
 						APIKey:    "bc_key",
-						RateLimit: 200,
+						RateLimit: 55,
 					},
 					ChaosDB: ChaosDBConfig{
 						APIKey:    "cd_key",
-						RateLimit: 75,
+						RateLimit: 55,
 					},
 				},
 				App: AppConfig{
-					LogLevel:     "debug",
-					Environment:  "test",
-					CronSchedule: "0 */12 * * *",
+					LogLevel:    "debug",
+					Environment: "production",
 				},
 				HTTP: HTTPConfig{
-					Timeout:       60000000000, // 60s in nanoseconds
+					Timeout:       60 * time.Second,
 					RetryAttempts: 5,
-					RetryDelay:    2000000000, // 2s in nanoseconds
+					RetryDelay:    2 * time.Second,
 				},
 				Discovery: DiscoveryConfig{
-					BulkSize:        200,
-					ConcurrentLimit: 20,
+					BulkSize: 200,
 				},
 			},
 			wantErr: false,
@@ -146,10 +139,6 @@ func TestLoad(t *testing.T) {
 		{
 			name: "default rate limits when not provided",
 			envVars: map[string]string{
-				"DB_HOST":           "test-host",
-				"DB_PORT":           "5433",
-				"DB_NAME":           "test_db",
-				"DB_USER":           "test_user",
 				"DB_PASSWORD":       "test_password",
 				"HACKERONE_API_KEY": "h1_key",
 				"BUGCROWD_API_KEY":  "bc_key",
@@ -157,57 +146,48 @@ func TestLoad(t *testing.T) {
 			},
 			want: &Config{
 				Database: DatabaseConfig{
-					Host:            "test-host",
-					Port:            5433,
-					Name:            "test_db",
-					User:            "test_user",
+					Host:            "localhost",
+					Port:            5432,
+					Name:            "monitor_agent",
+					User:            "monitor_agent",
 					Password:        "test_password",
 					SSLMode:         "disable",
 					SSLCert:         "",
 					SSLKey:          "",
 					SSLRootCert:     "",
-					ConnectTimeout:  30000000000, // 30s in nanoseconds
+					ConnectTimeout:  30 * time.Second,
 					MaxOpenConns:    25,
 					MaxIdleConns:    5,
-					ConnMaxLifetime: 300000000000, // 5m in nanoseconds
+					ConnMaxLifetime: 5 * time.Minute,
 				},
 				APIs: APIConfig{
 					HackerOne: HackerOneConfig{
 						APIKey:    "h1_key",
-						RateLimit: 550, // Default value
+						RateLimit: 550,
 					},
 					BugCrowd: BugCrowdConfig{
 						APIKey:    "bc_key",
-						RateLimit: 55, // Default value
+						RateLimit: 55,
 					},
 					ChaosDB: ChaosDBConfig{
 						APIKey:    "cd_key",
-						RateLimit: 55, // Default value
+						RateLimit: 55,
 					},
 				},
 				App: AppConfig{
-					LogLevel:     "info",
-					Environment:  "development",
-					CronSchedule: "0 */6 * * *",
+					LogLevel:    "info",
+					Environment: "development",
 				},
 				HTTP: HTTPConfig{
-					Timeout:       30000000000, // 30s in nanoseconds
+					Timeout:       30 * time.Second,
 					RetryAttempts: 3,
-					RetryDelay:    1000000000, // 1s in nanoseconds
+					RetryDelay:    1 * time.Second,
 				},
 				Discovery: DiscoveryConfig{
-					BulkSize:        100,
-					ConcurrentLimit: 10,
+					BulkSize: 100,
 				},
 			},
 			wantErr: false,
-		},
-		{
-			name: "invalid DISCOVERY_CONCURRENT_LIMIT",
-			envVars: map[string]string{
-				"DISCOVERY_CONCURRENT_LIMIT": "invalid",
-			},
-			wantErr: true,
 		},
 	}
 
@@ -272,9 +252,8 @@ func TestConfig_Validate(t *testing.T) {
 					},
 				},
 				App: AppConfig{
-					LogLevel:     "info",
-					Environment:  "development",
-					CronSchedule: "0 */6 * * *",
+					LogLevel:    "info",
+					Environment: "development",
 				},
 				HTTP: HTTPConfig{
 					Timeout:       30 * time.Second,
@@ -282,8 +261,7 @@ func TestConfig_Validate(t *testing.T) {
 					RetryDelay:    1 * time.Second,
 				},
 				Discovery: DiscoveryConfig{
-					BulkSize:        100,
-					ConcurrentLimit: 10,
+					BulkSize: 100,
 				},
 			},
 			wantErr: false,
@@ -318,9 +296,8 @@ func TestConfig_Validate(t *testing.T) {
 					},
 				},
 				App: AppConfig{
-					LogLevel:     "info",
-					Environment:  "development",
-					CronSchedule: "0 */6 * * *",
+					LogLevel:    "info",
+					Environment: "development",
 				},
 				HTTP: HTTPConfig{
 					Timeout:       30 * time.Second,
@@ -328,8 +305,7 @@ func TestConfig_Validate(t *testing.T) {
 					RetryDelay:    1 * time.Second,
 				},
 				Discovery: DiscoveryConfig{
-					BulkSize:        100,
-					ConcurrentLimit: 10,
+					BulkSize: 100,
 				},
 			},
 			wantErr: true,
@@ -364,9 +340,8 @@ func TestConfig_Validate(t *testing.T) {
 					},
 				},
 				App: AppConfig{
-					LogLevel:     "info",
-					Environment:  "development",
-					CronSchedule: "0 */6 * * *",
+					LogLevel:    "info",
+					Environment: "development",
 				},
 				HTTP: HTTPConfig{
 					Timeout:       30 * time.Second,
@@ -374,11 +349,10 @@ func TestConfig_Validate(t *testing.T) {
 					RetryDelay:    1 * time.Second,
 				},
 				Discovery: DiscoveryConfig{
-					BulkSize:        100,
-					ConcurrentLimit: 10,
+					BulkSize: 100,
 				},
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name: "missing BUGCROWD_API_KEY",
@@ -410,9 +384,8 @@ func TestConfig_Validate(t *testing.T) {
 					},
 				},
 				App: AppConfig{
-					LogLevel:     "info",
-					Environment:  "development",
-					CronSchedule: "0 */6 * * *",
+					LogLevel:    "info",
+					Environment: "development",
 				},
 				HTTP: HTTPConfig{
 					Timeout:       30 * time.Second,
@@ -420,11 +393,10 @@ func TestConfig_Validate(t *testing.T) {
 					RetryDelay:    1 * time.Second,
 				},
 				Discovery: DiscoveryConfig{
-					BulkSize:        100,
-					ConcurrentLimit: 10,
+					BulkSize: 100,
 				},
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name: "missing CHAOSDB_API_KEY",
@@ -456,9 +428,8 @@ func TestConfig_Validate(t *testing.T) {
 					},
 				},
 				App: AppConfig{
-					LogLevel:     "info",
-					Environment:  "development",
-					CronSchedule: "0 */6 * * *",
+					LogLevel:    "info",
+					Environment: "development",
 				},
 				HTTP: HTTPConfig{
 					Timeout:       30 * time.Second,
@@ -466,11 +437,10 @@ func TestConfig_Validate(t *testing.T) {
 					RetryDelay:    1 * time.Second,
 				},
 				Discovery: DiscoveryConfig{
-					BulkSize:        100,
-					ConcurrentLimit: 10,
+					BulkSize: 100,
 				},
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 	}
 
@@ -512,4 +482,57 @@ func TestGetEnv(t *testing.T) {
 
 	// Test with non-existing environment variable
 	assert.Equal(t, "default", getEnv("NON_EXISTENT_KEY", "default"))
+}
+
+func TestConfig_PlatformConfiguration(t *testing.T) {
+	config := &Config{
+		APIs: APIConfig{
+			HackerOne: HackerOneConfig{
+				APIKey: "h1_key",
+			},
+			BugCrowd: BugCrowdConfig{
+				APIKey: "",
+			},
+			ChaosDB: ChaosDBConfig{
+				APIKey: "cd_key",
+			},
+		},
+	}
+
+	// Test HasHackerOneConfig
+	assert.True(t, config.HasHackerOneConfig())
+	assert.False(t, config.HasBugCrowdConfig())
+	assert.True(t, config.HasChaosDBConfig())
+
+	// Test GetConfiguredPlatforms
+	platforms := config.GetConfiguredPlatforms()
+	assert.Contains(t, platforms, "hackerone")
+	assert.NotContains(t, platforms, "bugcrowd")
+	assert.Contains(t, platforms, "chaosdb")
+	assert.Len(t, platforms, 2)
+}
+
+func TestConfig_NoPlatformsConfigured(t *testing.T) {
+	config := &Config{
+		APIs: APIConfig{
+			HackerOne: HackerOneConfig{
+				APIKey: "",
+			},
+			BugCrowd: BugCrowdConfig{
+				APIKey: "",
+			},
+			ChaosDB: ChaosDBConfig{
+				APIKey: "",
+			},
+		},
+	}
+
+	// Test Has*Config methods
+	assert.False(t, config.HasHackerOneConfig())
+	assert.False(t, config.HasBugCrowdConfig())
+	assert.False(t, config.HasChaosDBConfig())
+
+	// Test GetConfiguredPlatforms
+	platforms := config.GetConfiguredPlatforms()
+	assert.Empty(t, platforms)
 }

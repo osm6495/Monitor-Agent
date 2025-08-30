@@ -42,9 +42,8 @@ func TestConfigurationValidationIntegration(t *testing.T) {
 				},
 			},
 			App: config.AppConfig{
-				LogLevel:     "info",
-				Environment:  "development",
-				CronSchedule: "0 */6 * * *",
+				LogLevel:    "info",
+				Environment: "development",
 			},
 			HTTP: config.HTTPConfig{
 				Timeout:       30 * time.Second,
@@ -52,8 +51,7 @@ func TestConfigurationValidationIntegration(t *testing.T) {
 				RetryDelay:    1 * time.Second,
 			},
 			Discovery: config.DiscoveryConfig{
-				BulkSize:        100,
-				ConcurrentLimit: 10,
+				BulkSize: 100,
 			},
 		}
 
@@ -91,9 +89,8 @@ func TestConfigurationValidationIntegration(t *testing.T) {
 				},
 			},
 			App: config.AppConfig{
-				LogLevel:     "info",
-				Environment:  "development",
-				CronSchedule: "0 */6 * * *",
+				LogLevel:    "info",
+				Environment: "development",
 			},
 			HTTP: config.HTTPConfig{
 				Timeout:       30 * time.Second,
@@ -101,8 +98,7 @@ func TestConfigurationValidationIntegration(t *testing.T) {
 				RetryDelay:    1 * time.Second,
 			},
 			Discovery: config.DiscoveryConfig{
-				BulkSize:        100,
-				ConcurrentLimit: 10,
+				BulkSize: 100,
 			},
 		}
 
@@ -140,9 +136,8 @@ func TestConfigurationValidationIntegration(t *testing.T) {
 				},
 			},
 			App: config.AppConfig{
-				LogLevel:     "info",
-				Environment:  "development",
-				CronSchedule: "0 */6 * * *",
+				LogLevel:    "info",
+				Environment: "development",
 			},
 			HTTP: config.HTTPConfig{
 				Timeout:       -1 * time.Second, // Invalid timeout
@@ -150,8 +145,7 @@ func TestConfigurationValidationIntegration(t *testing.T) {
 				RetryDelay:    1 * time.Second,
 			},
 			Discovery: config.DiscoveryConfig{
-				BulkSize:        100,
-				ConcurrentLimit: 10,
+				BulkSize: 100,
 			},
 		}
 
@@ -189,9 +183,8 @@ func TestConfigurationValidationIntegration(t *testing.T) {
 				},
 			},
 			App: config.AppConfig{
-				LogLevel:     "info",
-				Environment:  "development",
-				CronSchedule: "0 */6 * * *",
+				LogLevel:    "info",
+				Environment: "development",
 			},
 			HTTP: config.HTTPConfig{
 				Timeout:       30 * time.Second,
@@ -199,8 +192,7 @@ func TestConfigurationValidationIntegration(t *testing.T) {
 				RetryDelay:    1 * time.Second,
 			},
 			Discovery: config.DiscoveryConfig{
-				BulkSize:        2000, // Exceeds limit
-				ConcurrentLimit: 10,
+				BulkSize: 2000, // Exceeds limit
 			},
 		}
 

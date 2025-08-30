@@ -4,14 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/monitor-agent/internal/config"
 	"github.com/monitor-agent/internal/service"
-	"github.com/robfig/cron/v3"
 	"github.com/sirupsen/logrus"
 )
 
@@ -48,6 +45,15 @@ func main() {
 	// Initialize monitor service
 	monitorService := service.NewMonitorService(cfg, db)
 
+	// Log configured platforms
+	configuredPlatforms := cfg.GetConfiguredPlatforms()
+	if len(configuredPlatforms) == 0 {
+		logrus.Warn("No API keys configured. The application will start but cannot perform scans.")
+		logrus.Info("To enable scanning, set one or more of: HACKERONE_API_KEY, BUGCROWD_API_KEY, CHAOSDB_API_KEY")
+	} else {
+		logrus.Infof("Configured platforms: %v", configuredPlatforms)
+	}
+
 	// Check command line arguments
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -78,8 +84,12 @@ func main() {
 		}
 	}
 
-	// Run as a service with cron scheduling
-	runAsService(context.Background(), cfg, monitorService)
+	// Default behavior: run a scan
+	logrus.Info("No command specified, running scan...")
+	if err := runScan(context.Background(), monitorService); err != nil {
+		logrus.Errorf("Scan failed: %v", err)
+		os.Exit(1)
+	}
 }
 
 // connectToDatabase connects to the PostgreSQL database
@@ -106,7 +116,7 @@ func connectToDatabase(cfg *config.Config) (*sqlx.DB, error) {
 
 // runScan performs a single scan
 func runScan(ctx context.Context, monitorService *service.MonitorService) error {
-	logrus.Info("Starting manual scan...")
+	logrus.Info("Starting scan of all bug bounty platforms...")
 
 	startTime := time.Now()
 	if err := monitorService.RunFullScan(ctx); err != nil {
@@ -184,68 +194,24 @@ Usage:
   monitor-agent [command]
 
 Commands:
-  scan     Perform a single scan of all platforms
+  scan     Perform a scan of all platforms (default behavior)
   stats    Show program and asset statistics
   health   Perform health checks
   help     Show this help message
 
 Environment Variables:
-  DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
-  HACKERONE_API_KEY, BUGCROWD_API_KEY, CHAOSDB_API_KEY
-  LOG_LEVEL, CRON_SCHEDULE
+  DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD (required)
+  HACKERONE_API_KEY, BUGCROWD_API_KEY, CHAOSDB_API_KEY (optional)
+  LOG_LEVEL, ENVIRONMENT
 
 Examples:
-  monitor-agent scan
-  monitor-agent stats
-  monitor-agent health
+  monitor-agent          # Run a scan (default)
+  monitor-agent scan     # Explicitly run a scan
+  monitor-agent stats    # Show statistics
+  monitor-agent health   # Health check
 
-When run without arguments, the agent runs as a service with cron scheduling.
+This application performs one-off scans of bug bounty platforms.
+API keys are optional - the application will only scan platforms with configured keys.
+For scheduled scanning, use external cron or Kubernetes CronJobs.
 `)
-}
-
-// runAsService runs the agent as a service with cron scheduling
-func runAsService(_ context.Context, cfg *config.Config, monitorService *service.MonitorService) {
-	logrus.Info("Starting Monitor Agent as a service...")
-
-	// Create cron scheduler
-	c := cron.New(cron.WithSeconds())
-
-	// Add the scan job
-	entryID, err := c.AddFunc(cfg.App.CronSchedule, func() {
-		logrus.Info("Starting scheduled scan...")
-		scanCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-		defer cancel()
-
-		if err := monitorService.RunFullScan(scanCtx); err != nil {
-			logrus.Errorf("Scheduled scan failed: %v", err)
-		} else {
-			logrus.Info("Scheduled scan completed successfully")
-		}
-	})
-
-	if err != nil {
-		logrus.Errorf("Failed to schedule scan job: %v", err)
-		os.Exit(1)
-	}
-
-	logrus.Infof("Scheduled scan job with ID %d using schedule: %s", entryID, cfg.App.CronSchedule)
-
-	// Start the cron scheduler
-	c.Start()
-
-	// Wait for interrupt signal
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	logrus.Info("Monitor Agent is running. Press Ctrl+C to stop.")
-
-	// Wait for signal
-	<-sigChan
-
-	logrus.Info("Shutting down Monitor Agent...")
-
-	// Stop the cron scheduler
-	c.Stop()
-
-	logrus.Info("Monitor Agent stopped gracefully")
 }

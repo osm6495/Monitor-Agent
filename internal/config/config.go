@@ -64,9 +64,8 @@ type ChaosDBConfig struct {
 
 // AppConfig holds application configuration
 type AppConfig struct {
-	LogLevel     string
-	Environment  string
-	CronSchedule string
+	LogLevel    string
+	Environment string
 }
 
 // HTTPConfig holds HTTP client configuration
@@ -78,8 +77,7 @@ type HTTPConfig struct {
 
 // DiscoveryConfig holds discovery configuration
 type DiscoveryConfig struct {
-	BulkSize        int
-	ConcurrentLimit int
+	BulkSize int
 }
 
 // Load loads configuration from environment variables
@@ -167,9 +165,8 @@ func Load() (*Config, error) {
 
 	// Application configuration
 	config.App = AppConfig{
-		LogLevel:     getEnv("LOG_LEVEL", "info"),
-		Environment:  getEnv("ENVIRONMENT", "development"),
-		CronSchedule: getEnv("CRON_SCHEDULE", "0 */6 * * *"),
+		LogLevel:    getEnv("LOG_LEVEL", "info"),
+		Environment: getEnv("ENVIRONMENT", "development"),
 	}
 
 	// HTTP configuration
@@ -200,14 +197,8 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid CHAOSDB_BULK_SIZE: %w", err)
 	}
 
-	concurrentLimit, err := strconv.Atoi(getEnv("DISCOVERY_CONCURRENT_LIMIT", "10"))
-	if err != nil {
-		return nil, fmt.Errorf("invalid DISCOVERY_CONCURRENT_LIMIT: %w", err)
-	}
-
 	config.Discovery = DiscoveryConfig{
-		BulkSize:        bulkSize,
-		ConcurrentLimit: concurrentLimit,
+		BulkSize: bulkSize,
 	}
 
 	return config, nil
@@ -330,28 +321,25 @@ func (c *Config) validateDatabase() error {
 
 // validateAPIs validates API configuration
 func (c *Config) validateAPIs() error {
-	// Validate HackerOne configuration
-	if c.APIs.HackerOne.APIKey == "" {
-		return fmt.Errorf("HACKERONE_API_KEY is required")
-	}
-	if c.APIs.HackerOne.RateLimit <= 0 || c.APIs.HackerOne.RateLimit > 600 {
-		return fmt.Errorf("HACKERONE_RATE_LIMIT must be between 1 and 600")
-	}
-
-	// Validate BugCrowd configuration
-	if c.APIs.BugCrowd.APIKey == "" {
-		return fmt.Errorf("BUGCROWD_API_KEY is required")
-	}
-	if c.APIs.BugCrowd.RateLimit <= 0 || c.APIs.BugCrowd.RateLimit > 60 {
-		return fmt.Errorf("BUGCROWD_RATE_LIMIT must be between 1 and 60")
+	// Validate HackerOne configuration (only if API key is provided)
+	if c.APIs.HackerOne.APIKey != "" {
+		if c.APIs.HackerOne.RateLimit <= 0 || c.APIs.HackerOne.RateLimit > 600 {
+			return fmt.Errorf("HACKERONE_RATE_LIMIT must be between 1 and 600")
+		}
 	}
 
-	// Validate ChaosDB configuration
-	if c.APIs.ChaosDB.APIKey == "" {
-		return fmt.Errorf("CHAOSDB_API_KEY is required")
+	// Validate BugCrowd configuration (only if API key is provided)
+	if c.APIs.BugCrowd.APIKey != "" {
+		if c.APIs.BugCrowd.RateLimit <= 0 || c.APIs.BugCrowd.RateLimit > 60 {
+			return fmt.Errorf("BUGCROWD_RATE_LIMIT must be between 1 and 60")
+		}
 	}
-	if c.APIs.ChaosDB.RateLimit <= 0 || c.APIs.ChaosDB.RateLimit > 60 {
-		return fmt.Errorf("CHAOSDB_RATE_LIMIT must be between 1 and 60")
+
+	// Validate ChaosDB configuration (only if API key is provided)
+	if c.APIs.ChaosDB.APIKey != "" {
+		if c.APIs.ChaosDB.RateLimit <= 0 || c.APIs.ChaosDB.RateLimit > 60 {
+			return fmt.Errorf("CHAOSDB_RATE_LIMIT must be between 1 and 60")
+		}
 	}
 
 	return nil
@@ -385,16 +373,6 @@ func (c *Config) validateApp() error {
 		return fmt.Errorf("ENVIRONMENT must be one of: %s", strings.Join(validEnvironments, ", "))
 	}
 
-	// Validate cron schedule
-	if c.App.CronSchedule == "" {
-		return fmt.Errorf("CRON_SCHEDULE is required")
-	}
-
-	// Basic cron schedule validation (simple check for common patterns)
-	if !strings.Contains(c.App.CronSchedule, "*") && !strings.Contains(c.App.CronSchedule, "/") {
-		return fmt.Errorf("CRON_SCHEDULE appears to be invalid")
-	}
-
 	return nil
 }
 
@@ -417,9 +395,6 @@ func (c *Config) validateHTTP() error {
 func (c *Config) validateDiscovery() error {
 	if c.Discovery.BulkSize <= 0 || c.Discovery.BulkSize > 1000 {
 		return fmt.Errorf("CHAOSDB_BULK_SIZE must be between 1 and 1000")
-	}
-	if c.Discovery.ConcurrentLimit <= 0 || c.Discovery.ConcurrentLimit > 100 {
-		return fmt.Errorf("DISCOVERY_CONCURRENT_LIMIT must be between 1 and 100")
 	}
 
 	return nil
@@ -451,4 +426,34 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// HasHackerOneConfig returns true if HackerOne is configured with an API key
+func (c *Config) HasHackerOneConfig() bool {
+	return c.APIs.HackerOne.APIKey != ""
+}
+
+// HasBugCrowdConfig returns true if BugCrowd is configured with an API key
+func (c *Config) HasBugCrowdConfig() bool {
+	return c.APIs.BugCrowd.APIKey != ""
+}
+
+// HasChaosDBConfig returns true if ChaosDB is configured with an API key
+func (c *Config) HasChaosDBConfig() bool {
+	return c.APIs.ChaosDB.APIKey != ""
+}
+
+// GetConfiguredPlatforms returns a list of platform names that have API keys configured
+func (c *Config) GetConfiguredPlatforms() []string {
+	var platforms []string
+	if c.HasHackerOneConfig() {
+		platforms = append(platforms, "hackerone")
+	}
+	if c.HasBugCrowdConfig() {
+		platforms = append(platforms, "bugcrowd")
+	}
+	if c.HasChaosDBConfig() {
+		platforms = append(platforms, "chaosdb")
+	}
+	return platforms
 }

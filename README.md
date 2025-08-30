@@ -8,7 +8,7 @@ A comprehensive Golang application for monitoring bug bounty programs from multi
 - **Asset Discovery**: Uses ChaosDB to discover additional subdomains and assets
 - **Database Storage**: PostgreSQL database for persistent storage
 - **Rate Limiting**: Built-in rate limiting to respect API limits
-- **Cron Scheduling**: Automated scanning with configurable schedules
+- **One-off Scanning**: Performs single scans with full state management
 - **Docker Support**: Complete containerization with Docker and Docker Compose
 - **Comprehensive Testing**: Unit, integration, and end-to-end tests
 - **Health Monitoring**: Built-in health checks and monitoring
@@ -35,361 +35,260 @@ A comprehensive Golang application for monitoring bug bounty programs from multi
 - **API Key Rotation**: Support for multiple API keys with automatic rotation
 - **Configuration Validation**: Comprehensive validation of all settings
 - **SSL/TLS Support**: Full SSL certificate support for database connections
-- **Input Validation**: Proper validation and sanitization of all inputs
+- **Input Validation**: Comprehensive input validation and sanitization
 
 ### Performance & Scalability
-- **Worker Pools**: Concurrent processing for improved throughput
+- **Worker Pools**: Concurrent processing for improved performance
 - **Connection Pooling**: Optimized database connection management
 - **Rate Limiting**: Intelligent rate limiting with exponential backoff
 - **Memory Management**: Efficient memory usage with monitoring
 
 ## Architecture
 
-The application follows clean architecture principles with the following structure:
-
 ```
-Monitor-Agent/
-├── cmd/monitor-agent/          # Application entry point
+Monitor Agent
+├── cmd/monitor-agent/     # Application entry point
 ├── internal/
-│   ├── config/                 # Configuration management
-│   ├── database/               # Database models and repositories
-│   ├── platforms/              # Bug bounty platform integrations
-│   ├── discovery/              # Asset discovery services
-│   ├── service/                # Business logic and orchestration
-│   ├── utils/                  # Utility functions
-│   └── metrics/                # Prometheus metrics
-├── tests/                      # Test suites
-├── docker/                     # Docker configuration
-└── docs/                       # Documentation
+│   ├── config/           # Configuration management
+│   ├── database/         # Database layer and repositories
+│   ├── discovery/        # Asset discovery (ChaosDB)
+│   ├── metrics/          # Prometheus metrics
+│   ├── platforms/        # Platform integrations (HackerOne, BugCrowd)
+│   ├── service/          # Business logic layer
+│   └── utils/            # Utilities (URL processing, logging, etc.)
+├── tests/                # Integration tests
+└── docker/               # Docker configuration
 ```
 
-## Prerequisites
+## Quick Start
 
+### Prerequisites
 - Go 1.21 or later
-- PostgreSQL 12 or later
-- Docker and Docker Compose (for containerized deployment)
-- API keys for:
-  - HackerOne
-  - BugCrowd
-  - Project Discovery ChaosDB
+- PostgreSQL database
+- API keys for HackerOne, BugCrowd, and ChaosDB (optional - application will only scan platforms with configured keys)
 
-## Installation
+### Installation
 
-### Local Development
-
-1. **Clone the repository**:
+1. **Clone the repository**
    ```bash
-   git clone https://github.com/your-username/Monitor-Agent.git
+   git clone <repository-url>
    cd Monitor-Agent
    ```
 
-2. **Install dependencies**:
-   ```bash
-   make install-deps
-   go mod download
-   ```
-
-3. **Set up environment variables**:
+2. **Set up environment variables**
    ```bash
    cp env.example .env
-   # Edit .env with your API keys and database configuration
+   # Edit .env with your configuration
    ```
 
-4. **Set up database**:
+3. **Run the application**
    ```bash
-   # Configure your remote PostgreSQL connection in .env file
-   # The application now uses remote PostgreSQL instead of local Docker
+   # Run a scan (default behavior)
+   go run cmd/monitor-agent/main.go
    
-   # Run database migrations
-   make setup-db
+   # Or explicitly run a scan
+   go run cmd/monitor-agent/main.go scan
    
-   # Or use the migration script directly
-   ./scripts/migrate.sh --all
-   ```
-
-5. **Build and run**:
-   ```bash
-   make build
-   make run
+   # Show statistics
+   go run cmd/monitor-agent/main.go stats
+   
+   # Health check
+   go run cmd/monitor-agent/main.go health
    ```
 
 ### Docker Deployment
 
-1. **Set up environment variables**:
+1. **Build the image**
    ```bash
-   cp env.example .env
-   # Edit .env with your remote PostgreSQL configuration
+   docker build -f docker/Dockerfile -t monitor-agent .
    ```
 
-2. **Start the application**:
+2. **Run with Docker Compose**
    ```bash
-   make docker-compose-up
+   cd docker
+   docker-compose up -d
    ```
 
-3. **View logs**:
+3. **Run as one-off container**
    ```bash
-   make docker-compose-logs
+   docker run --env-file .env monitor-agent
    ```
-
-**Note**: The Docker deployment uses your remote PostgreSQL instance instead of a local container.
 
 ## Configuration
 
-The application uses environment variables for configuration. See `env.example` for all available options:
+### Environment Variables
 
-### Required Environment Variables
+#### Database Configuration
+- `DB_HOST`: PostgreSQL host
+- `DB_PORT`: PostgreSQL port (default: 5432)
+- `DB_NAME`: Database name
+- `DB_USER`: Database user
+- `DB_PASSWORD`: Database password
+- `DB_SSL_MODE`: SSL mode (disable, require, verify-ca, verify-full)
+- `DB_SSL_CERT`, `DB_SSL_KEY`, `DB_SSL_ROOT_CERT`: SSL certificates
+- `DB_CONNECT_TIMEOUT`: Connection timeout
+- `DB_MAX_OPEN_CONNS`: Maximum open connections
+- `DB_MAX_IDLE_CONNS`: Maximum idle connections
+- `DB_CONN_MAX_LIFETIME`: Connection max lifetime
 
-```bash
-# Database - Remote PostgreSQL
-DB_HOST=your-remote-postgres-host.com
-DB_PORT=5432
-DB_NAME=monitor_agent
-DB_USER=monitor_agent
-DB_PASSWORD=your_secure_password
-DB_SSL_MODE=require
-DB_SSL_CERT=
-DB_SSL_KEY=
-DB_SSL_ROOT_CERT=
+#### API Configuration
+- `HACKERONE_API_KEY`: HackerOne API key (optional)
+- `BUGCROWD_API_KEY`: BugCrowd API key (optional)
+- `CHAOSDB_API_KEY`: ChaosDB API key (optional)
+- `HACKERONE_RATE_LIMIT`: HackerOne rate limit (default: 550)
+- `BUGCROWD_RATE_LIMIT`: BugCrowd rate limit (default: 55)
+- `CHAOSDB_RATE_LIMIT`: ChaosDB rate limit (default: 55)
 
-# API Keys
-HACKERONE_API_KEY=your_hackerone_api_key
-BUGCROWD_API_KEY=your_bugcrowd_api_key
-CHAOSDB_API_KEY=your_chaosdb_api_key
-```
+#### Application Configuration
+- `LOG_LEVEL`: Log level (debug, info, warn, error, fatal)
+- `ENVIRONMENT`: Environment (development, staging, production)
 
-### Optional Configuration
+#### HTTP Configuration
+- `HTTP_TIMEOUT`: HTTP timeout
+- `HTTP_RETRY_ATTEMPTS`: Number of retry attempts
+- `HTTP_RETRY_DELAY`: Retry delay
 
-```bash
-# Database Connection Pool
-DB_CONNECT_TIMEOUT=30s
-DB_MAX_OPEN_CONNS=25
-DB_MAX_IDLE_CONNS=5
-DB_CONN_MAX_LIFETIME=5m
+#### Discovery Configuration
+- `CHAOSDB_BULK_SIZE`: Bulk size for ChaosDB requests
 
-# SSL Configuration (if using SSL certificates)
-DB_SSL_CERT=
-DB_SSL_KEY=
-DB_SSL_ROOT_CERT=
+**Note**: API keys are optional. The application will only scan platforms that have valid API keys configured. If no API keys are provided, the application will start but cannot perform scans.
 
-# Rate Limiting (Optional - defaults are set to be just under API limits)
-# HackerOne: 600 requests per minute (default: 550)
-# BugCrowd: 60 requests per minute per IP (default: 55)
-# ChaosDB: 60 requests per minute per IP (default: 55)
-HACKERONE_RATE_LIMIT=550
-BUGCROWD_RATE_LIMIT=55
-CHAOSDB_RATE_LIMIT=55
-
-# Application
-LOG_LEVEL=info
-ENVIRONMENT=production
-CRON_SCHEDULE="0 */6 * * *"  # Every 6 hours
-
-# HTTP Client
-HTTP_TIMEOUT=30s
-HTTP_RETRY_ATTEMPTS=3
-HTTP_RETRY_DELAY=1s
-
-# Discovery Configuration
-CHAOSDB_BULK_SIZE=100
-DISCOVERY_CONCURRENT_LIMIT=10
-
-# Circuit Breaker Configuration
-CIRCUIT_BREAKER_FAILURE_THRESHOLD=5
-CIRCUIT_BREAKER_RECOVERY_TIMEOUT=60s
-CIRCUIT_BREAKER_SUCCESS_THRESHOLD=3
-```
-
-### Remote Database Configuration
-
-The application is designed to work with remote PostgreSQL instances. Key considerations:
-
-- **SSL Mode**: Set `DB_SSL_MODE` to `require` or `verify-full` for secure connections
-- **Connection Pool**: Configure connection pool settings for optimal performance
-- **Network Latency**: Consider increasing `DB_CONNECT_TIMEOUT` for remote connections
-- **SSL Certificates**: For `verify-full` SSL mode, provide certificate paths in `DB_SSL_CERT`, `DB_SSL_KEY`, and `DB_SSL_ROOT_CERT`
-
-For detailed setup instructions, see [Remote Database Setup Guide](docs/REMOTE_DATABASE_SETUP.md).
+#### Advanced Configuration
+- `CIRCUIT_BREAKER_*`: Circuit breaker settings
+- `WORKER_POOL_*`: Worker pool configuration
+- `METRICS_*`: Prometheus metrics settings
+- `LOG_*`: Logging configuration
+- `HEALTH_CHECK_*`: Health check settings
+- `API_KEY_ROTATION_*`: API key rotation settings
 
 ## Usage
 
-### Command Line Interface
+### Commands
 
-The application provides several commands:
+- **`monitor-agent`** or **`monitor-agent scan`**: Perform a scan of all platforms
+- **`monitor-agent stats`**: Show program and asset statistics
+- **`monitor-agent health`**: Perform health checks
+- **`monitor-agent help`**: Show help information
 
-```bash
-# Run as a service with cron scheduling
-./monitor-agent
+### Scheduling
 
-# Perform a single scan
-./monitor-agent scan
+Since this application performs one-off scans, you can schedule it using:
 
-# Show statistics
-./monitor-agent stats
+1. **System Cron**:
+   ```bash
+   # Add to crontab
+   0 */6 * * * /path/to/monitor-agent
+   ```
 
-# Run health checks
-./monitor-agent health
+2. **Kubernetes CronJob**:
+   ```yaml
+   apiVersion: batch/v1
+   kind: CronJob
+   metadata:
+     name: monitor-agent
+   spec:
+     schedule: "0 */6 * * *"
+     jobTemplate:
+       spec:
+         template:
+           spec:
+             containers:
+             - name: monitor-agent
+               image: monitor-agent:latest
+             restartPolicy: OnFailure
+   ```
 
-# Show help
-./monitor-agent help
-```
-
-### Using Make Commands
-
-```bash
-# Build the application
-make build
-
-# Run tests
-make test
-
-# Run with Docker
-make docker-compose-up
-
-# Show logs
-make docker-compose-logs
-
-# Database management
-make test-db-connection  # Test database connection
-make migrate-validate    # Validate database connection
-make migrate             # Run migrations only
-make migrate-verify      # Verify migration results
-```
+3. **Docker with external cron**:
+   ```bash
+   # Run every 6 hours
+   0 */6 * * * docker run --env-file .env monitor-agent
+   ```
 
 ## API Integration
 
 ### HackerOne
-
-The application integrates with HackerOne's API to:
-- Retrieve public bug bounty programs
-- Get in-scope assets for each program
-- Handle rate limiting and pagination
-- Circuit breaker protection for API failures
+- Fetches public programs and their scope
+- Rate limited to 600 requests per minute
+- Supports API key authentication
 
 ### BugCrowd
-
-Similar integration for BugCrowd's API with:
-- Full API integration (not just in progress)
-- Rate limiting and error handling
-- Circuit breaker protection
+- Fetches public programs and their scope
+- Rate limited to 60 requests per minute per IP
+- Supports API key authentication
 
 ### ChaosDB
-
-Uses Project Discovery's ChaosDB to:
-- Discover additional subdomains for known domains
-- Bulk discovery for efficiency
-- Rate limiting to respect API limits
-- Error handling and retry logic
+- Discovers additional subdomains for domains in scope
+- Rate limited to 60 requests per minute per IP
+- Supports API key authentication for higher limits
 
 ## Database Schema
 
 The application uses PostgreSQL with the following main tables:
 
 - **programs**: Bug bounty programs from various platforms
-- **assets**: Discovered assets (subdomains, URLs)
-- **asset_responses**: HTTP response information for assets
-- **scans**: Discovery scan sessions
-- **platforms**: Bug bounty platform information
+- **assets**: In-scope assets (domains, subdomains, URLs)
+- **scans**: Scan history and results
 
-## Testing
+## Test Coverage
 
-The application includes comprehensive testing:
+Run the test suite:
 
 ```bash
-# Run unit tests
-make test
+# Unit tests
+go test ./...
 
-# Run tests with coverage
-make test-coverage
+# Integration tests
+go test ./tests/integration/...
 
-# Run integration tests
-make test-integration
-
-# Run end-to-end tests
-make test-e2e
-
-# Run all tests
-make all
+# With coverage
+go test -cover ./...
 ```
-
-### Test Coverage
-
-- **Unit Tests**: Individual component testing
-- **Integration Tests**: Database and API integration testing
-- **Configuration Tests**: Validation and error handling
-- **Performance Tests**: Load testing and memory usage
-- **Error Recovery Tests**: Failure scenario testing
 
 ## Development
 
 ### Project Structure
+- **Clean Architecture**: Clear separation of concerns
+- **Repository Pattern**: Database abstraction layer
+- **Dependency Injection**: Easy testing and configuration
+- **Error Handling**: Comprehensive error handling throughout
 
-- **Clean Architecture**: Separation of concerns with clear boundaries
-- **Dependency Injection**: Easy testing and modularity
-- **Repository Pattern**: Database abstraction
-- **Factory Pattern**: Platform client creation
-- **Strategy Pattern**: Different discovery strategies
-- **Circuit Breaker Pattern**: Fault tolerance
-- **Worker Pool Pattern**: Concurrent processing
-
-### Adding New Platforms
-
-To add support for a new bug bounty platform:
-
-1. Implement the `Platform` interface in `internal/platforms/`
-2. Add platform configuration to the factory
-3. Update tests and documentation
-4. Add circuit breaker configuration
-
-### Adding New Discovery Services
-
-To add new asset discovery services:
-
-1. Implement discovery logic in `internal/discovery/`
-2. Integrate with the monitor service
-3. Add configuration options
-4. Add metrics and monitoring
+### Development Patterns
+- **Structured Logging**: JSON logs with correlation IDs
+- **Metrics Collection**: Prometheus metrics for monitoring
+- **Health Checks**: Comprehensive health monitoring
+- **Circuit Breakers**: Fault tolerance for external APIs
 
 ## Deployment
 
-### Production Deployment
-
-1. **Set up PostgreSQL database**
-2. **Configure environment variables**
-3. **Set up monitoring and alerting**
-4. **Build and deploy**:
-   ```bash
-   make release
-   docker push your-registry/monitor-agent:latest
-   ```
-
-### VPS Deployment
-
-1. **Install Docker and Docker Compose**
-2. **Clone and configure the application**
-3. **Set up SSL certificates**
-4. **Start services**:
-   ```bash
-   make docker-compose-up
-   ```
-
-### Monitoring and Logging
-
-- **Application logs**: JSON-formatted logs with correlation IDs
-- **Health checks**: Via the `/health` endpoint
-- **Prometheus metrics**: Available on `/metrics` endpoint
-- **Database monitoring**: Through standard PostgreSQL tools
-- **Circuit breaker status**: Available in metrics
-
 ### Production Checklist
 
-- [ ] SSL certificates configured
-- [ ] Database connection pool optimized
-- [ ] Rate limits configured
-- [ ] Circuit breakers enabled
-- [ ] Monitoring and alerting set up
-- [ ] Log aggregation configured
-- [ ] Backup strategy implemented
-- [ ] Security scanning completed
+- [ ] Set up PostgreSQL database with proper SSL configuration
+- [ ] Configure API keys for all platforms
+- [ ] Set appropriate rate limits
+- [ ] Configure logging and monitoring
+- [ ] Set up external scheduling (cron, Kubernetes CronJob)
+- [ ] Configure health checks and alerting
+- [ ] Set up backup and recovery procedures
+
+### Monitoring
+
+The application exposes Prometheus metrics at `/metrics` and provides health check endpoints. Monitor:
+
+- Scan success/failure rates
+- API response times and error rates
+- Database connection pool status
+- Memory and CPU usage
+- Asset discovery rates
+
+## Roadmap
+
+- [ ] Support for additional bug bounty platforms
+- [ ] Advanced asset discovery techniques
+- [ ] Real-time notifications
+- [ ] Web dashboard for monitoring
+- [ ] Advanced filtering and search capabilities
+- [ ] Integration with vulnerability scanners
+- [ ] Automated reporting and analytics
 
 ## Contributing
 
@@ -397,33 +296,9 @@ To add new asset discovery services:
 2. Create a feature branch
 3. Make your changes
 4. Add tests for new functionality
-5. Run the test suite
+5. Ensure all tests pass
 6. Submit a pull request
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Support
-
-For support and questions:
-- Create an issue on GitHub
-- Check the documentation in the `docs/` directory
-- Review the test examples for usage patterns
-
-## Roadmap
-
-- [x] BugCrowd API integration (completed)
-- [x] Circuit breaker pattern (completed)
-- [x] Structured logging (completed)
-- [x] Prometheus metrics (completed)
-- [x] API key rotation (completed)
-- [x] Worker pools (completed)
-- [x] Configuration validation (completed)
-- [ ] Additional bug bounty platforms
-- [ ] Web interface for monitoring
-- [ ] Advanced asset filtering
-- [ ] Integration with security tools
-- [ ] Automated vulnerability scanning
-- [ ] Slack/Discord notifications
-- [ ] Metrics and analytics dashboard
+[Add your license information here]
