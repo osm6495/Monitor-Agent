@@ -1,0 +1,478 @@
+package service
+
+import (
+	"context"
+	"fmt"
+	"runtime"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
+	"github.com/monitor-agent/internal/config"
+	"github.com/monitor-agent/internal/database"
+	"github.com/monitor-agent/internal/discovery/chaosdb"
+	"github.com/monitor-agent/internal/platforms"
+	"github.com/monitor-agent/internal/utils"
+	"github.com/sirupsen/logrus"
+)
+
+// MonitorService orchestrates the monitoring of bug bounty programs
+type MonitorService struct {
+	config          *config.Config
+	programRepo     *database.ProgramRepository
+	assetRepo       *database.AssetRepository
+	scanRepo        *database.ScanRepository
+	platformFactory *platforms.PlatformFactory
+	chaosDBClient   *chaosdb.Client
+	urlProcessor    *utils.URLProcessor
+}
+
+// NewMonitorService creates a new monitor service
+func NewMonitorService(cfg *config.Config, db *sqlx.DB) *MonitorService {
+	// Initialize repositories
+	programRepo := database.NewProgramRepository(db)
+	assetRepo := database.NewAssetRepository(db)
+	scanRepo := database.NewScanRepository(db)
+
+	// Initialize platform factory
+	platformFactory := platforms.NewPlatformFactory()
+	platformFactory.RegisterPlatform("hackerone", &platforms.PlatformConfig{
+		APIKey:        cfg.APIs.HackerOne.APIKey,
+		RateLimit:     cfg.APIs.HackerOne.RateLimit,
+		Timeout:       cfg.HTTP.Timeout,
+		RetryAttempts: cfg.HTTP.RetryAttempts,
+		RetryDelay:    cfg.HTTP.RetryDelay,
+	})
+	platformFactory.RegisterPlatform("bugcrowd", &platforms.PlatformConfig{
+		APIKey:        cfg.APIs.BugCrowd.APIKey,
+		RateLimit:     cfg.APIs.BugCrowd.RateLimit,
+		Timeout:       cfg.HTTP.Timeout,
+		RetryAttempts: cfg.HTTP.RetryAttempts,
+		RetryDelay:    cfg.HTTP.RetryDelay,
+	})
+
+	// Initialize ChaosDB client
+	chaosDBClient := chaosdb.NewClient(&chaosdb.ClientConfig{
+		APIKey:        cfg.APIs.ChaosDB.APIKey,
+		RateLimit:     cfg.APIs.ChaosDB.RateLimit,
+		Timeout:       cfg.HTTP.Timeout,
+		RetryAttempts: cfg.HTTP.RetryAttempts,
+		RetryDelay:    cfg.HTTP.RetryDelay,
+	})
+
+	return &MonitorService{
+		config:          cfg,
+		programRepo:     programRepo,
+		assetRepo:       assetRepo,
+		scanRepo:        scanRepo,
+		platformFactory: platformFactory,
+		chaosDBClient:   chaosDBClient,
+		urlProcessor:    utils.NewURLProcessor(),
+	}
+}
+
+// RunFullScan performs a complete scan of all platforms
+func (s *MonitorService) RunFullScan(ctx context.Context) error {
+	logrus.Info("Starting full scan of all bug bounty platforms")
+
+	// Get all platforms
+	platformList := s.platformFactory.GetAllPlatforms()
+	if len(platformList) == 0 {
+		return fmt.Errorf("no platforms configured")
+	}
+
+	var wg sync.WaitGroup
+	errors := make(chan error, len(platformList))
+
+	// Scan each platform concurrently
+	for _, platform := range platformList {
+		wg.Add(1)
+		go func(p platforms.Platform) {
+			defer wg.Done()
+			if err := s.scanPlatform(ctx, p); err != nil {
+				errors <- fmt.Errorf("failed to scan platform %s: %w", p.GetName(), err)
+			}
+		}(platform)
+	}
+
+	wg.Wait()
+	close(errors)
+
+	// Collect errors
+	var errs []error
+	for err := range errors {
+		errs = append(errs, err)
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("scan completed with %d errors: %v", len(errs), errs)
+	}
+
+	logrus.Info("Full scan completed successfully")
+	return nil
+}
+
+// scanPlatform scans a single platform
+func (s *MonitorService) scanPlatform(ctx context.Context, platform platforms.Platform) error {
+	platformName := platform.GetName()
+	logrus.Infof("Scanning platform: %s", platformName)
+
+	// Check platform health
+	if err := platform.IsHealthy(ctx); err != nil {
+		return fmt.Errorf("platform %s is not healthy: %w", platformName, err)
+	}
+
+	// Get public programs from platform
+	programs, err := platform.GetPublicPrograms(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get programs from %s: %w", platformName, err)
+	}
+
+	logrus.Infof("Found %d programs on platform %s", len(programs), platformName)
+
+	// Process each program
+	for _, program := range programs {
+		if err := s.processProgram(ctx, platform, program); err != nil {
+			logrus.Errorf("Failed to process program %s: %v", program.Name, err)
+			continue
+		}
+	}
+
+	// Mark inactive programs
+	if err := s.markInactivePrograms(ctx, platformName, programs); err != nil {
+		return fmt.Errorf("failed to mark inactive programs for %s: %w", platformName, err)
+	}
+
+	return nil
+}
+
+// processProgram processes a single program
+func (s *MonitorService) processProgram(ctx context.Context, platform platforms.Platform, program *platforms.Program) error {
+	logrus.Infof("Processing program: %s (%s)", program.Name, program.Platform)
+
+	// Check if program already exists in database
+	existingProgram, err := s.programRepo.GetProgramByPlatformAndURL(ctx, program.Platform, program.URL)
+	if err != nil {
+		return fmt.Errorf("failed to check existing program: %w", err)
+	}
+
+	if existingProgram != nil {
+		// Update existing program
+		existingProgram.Name = program.Name
+		existingProgram.ProgramURL = program.ProgramURL
+		existingProgram.IsActive = program.IsActive
+		existingProgram.LastUpdated = program.LastUpdated
+
+		if err := s.programRepo.UpdateProgram(ctx, existingProgram); err != nil {
+			return fmt.Errorf("failed to update program: %w", err)
+		}
+
+		logrus.Infof("Updated existing program: %s", program.Name)
+		return nil
+	}
+
+	// Create new program
+	dbProgram := program.ConvertToDatabaseProgram()
+	if err := s.programRepo.CreateProgram(ctx, dbProgram); err != nil {
+		return fmt.Errorf("failed to create program: %w", err)
+	}
+
+	logrus.Infof("Created new program: %s", program.Name)
+
+	// Get program scope and discover assets
+	if err := s.discoverProgramAssets(ctx, dbProgram, platform); err != nil {
+		return fmt.Errorf("failed to discover assets for program %s: %w", program.Name, err)
+	}
+
+	return nil
+}
+
+// discoverProgramAssets discovers assets for a program
+func (s *MonitorService) discoverProgramAssets(ctx context.Context, program *database.Program, platform platforms.Platform) error {
+	logrus.Infof("Discovering assets for program: %s", program.Name)
+
+	// Create scan record
+	scan := &database.Scan{
+		ProgramID:   program.ID,
+		Status:      "running",
+		AssetsFound: 0,
+	}
+
+	if err := s.scanRepo.CreateScan(ctx, scan); err != nil {
+		return fmt.Errorf("failed to create scan record: %w", err)
+	}
+
+	defer func() {
+		// Update scan status
+		scan.Status = "completed"
+		scan.CompletedAt = &time.Time{}
+		if err := s.scanRepo.UpdateScan(ctx, scan); err != nil {
+			logrus.Errorf("Failed to update scan status: %v", err)
+		}
+	}()
+
+	// Get program scope from platform
+	scopeAssets, err := platform.GetProgramScope(ctx, program.ProgramURL)
+	if err != nil {
+		scan.Status = "failed"
+		scan.Error = err.Error()
+		return fmt.Errorf("failed to get program scope: %w", err)
+	}
+
+	logrus.Infof("Found %d scope assets for program %s", len(scopeAssets), program.Name)
+
+	// Convert scope assets to database assets
+	var dbAssets []*database.Asset
+	for _, scopeAsset := range scopeAssets {
+		dbAsset := scopeAsset.ConvertToDatabaseAsset(program.ID.String())
+		dbAssets = append(dbAssets, dbAsset)
+	}
+
+	// Save scope assets to database
+	if len(dbAssets) > 0 {
+		if err := s.assetRepo.CreateAssets(ctx, dbAssets); err != nil {
+			scan.Status = "failed"
+			scan.Error = err.Error()
+			return fmt.Errorf("failed to save scope assets: %w", err)
+		}
+	}
+
+	// Extract unique domains for ChaosDB discovery
+	domains := s.extractUniqueDomains(scopeAssets)
+	logrus.Infof("Extracted %d unique domains for ChaosDB discovery", len(domains))
+
+	// Discover additional subdomains using ChaosDB
+	if len(domains) > 0 {
+		chaosAssets, err := s.discoverWithChaosDB(ctx, program.ID, domains)
+		if err != nil {
+			logrus.Warnf("ChaosDB discovery failed for program %s: %v", program.Name, err)
+		} else {
+			logrus.Infof("ChaosDB discovered %d additional assets for program %s", len(chaosAssets), program.Name)
+		}
+	}
+
+	// Update scan with final count
+	assetCount, err := s.assetRepo.GetAssetCountByProgramID(ctx, program.ID)
+	if err != nil {
+		logrus.Warnf("Failed to get asset count for program %s: %v", program.Name, err)
+	} else {
+		scan.AssetsFound = assetCount
+	}
+
+	return nil
+}
+
+// discoverWithChaosDB discovers additional subdomains using ChaosDB
+func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid.UUID, domains []string) ([]*database.Asset, error) {
+	logrus.Infof("Starting ChaosDB discovery for %d domains", len(domains))
+
+	// Use bulk discovery for efficiency
+	bulkResult, err := s.chaosDBClient.DiscoverDomainsBulk(ctx, domains)
+	if err != nil {
+		return nil, fmt.Errorf("ChaosDB bulk discovery failed: %w", err)
+	}
+
+	var assets []*database.Asset
+	for _, result := range bulkResult.Results {
+		if result.Error != "" {
+			logrus.Warnf("ChaosDB error for domain %s: %s", result.Domain, result.Error)
+			continue
+		}
+
+		// Convert subdomains to assets
+		for _, subdomain := range result.Subdomains {
+			// Create full URL
+			url := fmt.Sprintf("https://%s", subdomain)
+
+			// Extract domain and subdomain
+			domain, err := s.urlProcessor.ExtractDomain(url)
+			if err != nil {
+				logrus.Warnf("Failed to extract domain from %s: %v", url, err)
+				continue
+			}
+
+			subdomainName, err := s.urlProcessor.ExtractSubdomain(url)
+			if err != nil {
+				logrus.Warnf("Failed to extract subdomain from %s: %v", url, err)
+			}
+
+			asset := &database.Asset{
+				ProgramID: programID,
+				URL:       url,
+				Domain:    domain,
+				Subdomain: subdomainName,
+				Status:    "active",
+				Source:    "chaosdb",
+			}
+
+			assets = append(assets, asset)
+		}
+	}
+
+	// Save ChaosDB assets to database
+	if len(assets) > 0 {
+		if err := s.assetRepo.CreateAssets(ctx, assets); err != nil {
+			return nil, fmt.Errorf("failed to save ChaosDB assets: %w", err)
+		}
+	}
+
+	return assets, nil
+}
+
+// extractUniqueDomains extracts unique domains from scope assets
+func (s *MonitorService) extractUniqueDomains(scopeAssets []*platforms.ScopeAsset) []string {
+	domainMap := make(map[string]bool)
+	var domains []string
+
+	for _, asset := range scopeAssets {
+		domain, err := s.urlProcessor.ExtractDomain(asset.URL)
+		if err != nil {
+			logrus.Warnf("Failed to extract domain from %s: %v", asset.URL, err)
+			continue
+		}
+
+		if !domainMap[domain] {
+			domainMap[domain] = true
+			domains = append(domains, domain)
+		}
+	}
+
+	return domains
+}
+
+// markInactivePrograms marks programs as inactive if they no longer exist
+func (s *MonitorService) markInactivePrograms(ctx context.Context, platformName string, currentPrograms []*platforms.Program) error {
+	// Get all active programs for this platform from database
+	dbPrograms, err := s.programRepo.GetProgramsByPlatform(ctx, platformName)
+	if err != nil {
+		return fmt.Errorf("failed to get database programs: %w", err)
+	}
+
+	// Create a map of current program URLs
+	currentURLs := make(map[string]bool)
+	for _, program := range currentPrograms {
+		currentURLs[program.URL] = true
+	}
+
+	// Mark programs as inactive if they're not in the current list
+	for _, dbProgram := range dbPrograms {
+		if !currentURLs[dbProgram.URL] {
+			if err := s.programRepo.MarkProgramInactive(ctx, dbProgram.ID); err != nil {
+				logrus.Errorf("Failed to mark program %s as inactive: %v", dbProgram.Name, err)
+				continue
+			}
+			logrus.Infof("Marked program %s as inactive", dbProgram.Name)
+		}
+	}
+
+	return nil
+}
+
+// GetProgramStats returns statistics about programs and assets
+func (s *MonitorService) GetProgramStats(ctx context.Context) (*ProgramStats, error) {
+	// Get programs with asset counts
+	programsWithCounts, err := s.programRepo.GetProgramsWithAssetCount(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get programs with asset counts: %w", err)
+	}
+
+	// Get recent scans
+	recentScans, err := s.scanRepo.GetRecentScans(ctx, 10)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get recent scans: %w", err)
+	}
+
+	stats := &ProgramStats{
+		TotalPrograms:  len(programsWithCounts),
+		ActivePrograms: 0,
+		TotalAssets:    0,
+		RecentScans:    recentScans,
+	}
+
+	for _, programWithCount := range programsWithCounts {
+		if programWithCount.Program.IsActive {
+			stats.ActivePrograms++
+		}
+		stats.TotalAssets += programWithCount.AssetCount
+	}
+
+	return stats, nil
+}
+
+// CheckDatabaseHealth checks database connectivity and health
+func (s *MonitorService) CheckDatabaseHealth(ctx context.Context) error {
+	// Test basic connectivity
+	if err := s.programRepo.GetDB().PingContext(ctx); err != nil {
+		return fmt.Errorf("database ping failed: %w", err)
+	}
+
+	// Test a simple query
+	if _, err := s.programRepo.GetProgramsWithAssetCount(ctx); err != nil {
+		return fmt.Errorf("database query test failed: %w", err)
+	}
+
+	logrus.Debug("Database health check passed")
+	return nil
+}
+
+// CheckPlatformHealth checks health of all configured platforms
+func (s *MonitorService) CheckPlatformHealth(ctx context.Context) error {
+	platforms := s.platformFactory.GetAllPlatforms()
+	if len(platforms) == 0 {
+		return fmt.Errorf("no platforms configured")
+	}
+
+	for _, platform := range platforms {
+		platformName := platform.GetName()
+		if err := platform.IsHealthy(ctx); err != nil {
+			return fmt.Errorf("platform %s health check failed: %w", platformName, err)
+		}
+		logrus.Debugf("Platform %s health check passed", platformName)
+	}
+
+	return nil
+}
+
+// CheckChaosDBHealth checks ChaosDB service health
+func (s *MonitorService) CheckChaosDBHealth(ctx context.Context) error {
+	if err := s.chaosDBClient.IsHealthy(ctx); err != nil {
+		return fmt.Errorf("ChaosDB health check failed: %w", err)
+	}
+
+	logrus.Debug("ChaosDB health check passed")
+	return nil
+}
+
+// CheckSystemHealth checks system resources and limits
+func (s *MonitorService) CheckSystemHealth(ctx context.Context) error {
+	// Check memory usage (basic implementation)
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	// Log memory usage for monitoring
+	logrus.Debugf("System memory - Alloc: %d MB, Sys: %d MB, NumGC: %d",
+		m.Alloc/1024/1024, m.Sys/1024/1024, m.NumGC)
+
+	// Check if memory usage is reasonable (less than 1GB allocated)
+	if m.Alloc > 1024*1024*1024 {
+		return fmt.Errorf("high memory usage: %d MB allocated", m.Alloc/1024/1024)
+	}
+
+	// Check goroutine count
+	numGoroutines := runtime.NumGoroutine()
+	if numGoroutines > 1000 {
+		return fmt.Errorf("high goroutine count: %d", numGoroutines)
+	}
+
+	logrus.Debugf("System health check passed - Goroutines: %d", numGoroutines)
+	return nil
+}
+
+// ProgramStats represents program statistics
+type ProgramStats struct {
+	TotalPrograms  int              `json:"total_programs"`
+	ActivePrograms int              `json:"active_programs"`
+	TotalAssets    int              `json:"total_assets"`
+	RecentScans    []*database.Scan `json:"recent_scans"`
+}

@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  monitor-agent:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: monitor-agent
+    environment:
+      # Database Configuration - Remote PostgreSQL
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-monitor_agent}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_SSL_MODE: ${DB_SSL_MODE:-require}
+      DB_SSL_CERT: ${DB_SSL_CERT:-}
+      DB_SSL_KEY: ${DB_SSL_KEY:-}
+      DB_SSL_ROOT_CERT: ${DB_SSL_ROOT_CERT:-}
+      DB_CONNECT_TIMEOUT: ${DB_CONNECT_TIMEOUT:-30s}
+      DB_MAX_OPEN_CONNS: ${DB_MAX_OPEN_CONNS:-25}
+      DB_MAX_IDLE_CONNS: ${DB_MAX_IDLE_CONNS:-5}
+      DB_CONN_MAX_LIFETIME: ${DB_CONN_MAX_LIFETIME:-5m}
+      
+      # API Keys
+      HACKERONE_API_KEY: ${HACKERONE_API_KEY}
+      BUGCROWD_API_KEY: ${BUGCROWD_API_KEY}
+      CHAOSDB_API_KEY: ${CHAOSDB_API_KEY}
+      
+      # Rate Limiting (Optional - defaults are set to be just under API limits)
+      HACKERONE_RATE_LIMIT: ${HACKERONE_RATE_LIMIT:-550}
+      BUGCROWD_RATE_LIMIT: ${BUGCROWD_RATE_LIMIT:-55}
+      CHAOSDB_RATE_LIMIT: ${CHAOSDB_RATE_LIMIT:-55}
+      
+      # Application Configuration
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      CRON_SCHEDULE: ${CRON_SCHEDULE:-"0 */6 * * *"}
+      
+      # HTTP Client Configuration
+      HTTP_TIMEOUT: ${HTTP_TIMEOUT:-30s}
+      HTTP_RETRY_ATTEMPTS: ${HTTP_RETRY_ATTEMPTS:-3}
+      HTTP_RETRY_DELAY: ${HTTP_RETRY_DELAY:-1s}
+      
+      # Discovery Configuration
+      CHAOSDB_BULK_SIZE: ${CHAOSDB_BULK_SIZE:-100}
+      DISCOVERY_CONCURRENT_LIMIT: ${DISCOVERY_CONCURRENT_LIMIT:-10}
+    restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
+
+networks:
+  monitor-network:
+    driver: bridge
