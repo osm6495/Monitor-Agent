@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/monitor-agent/internal/config"
 	"github.com/monitor-agent/internal/service"
 	"github.com/sirupsen/logrus"
@@ -41,6 +44,12 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+
+	// Run database migrations
+	if err := runMigrations(db); err != nil {
+		logrus.Errorf("Failed to run database migrations: %v", err)
+		os.Exit(1)
+	}
 
 	// Initialize monitor service
 	monitorService := service.NewMonitorService(cfg, db)
@@ -84,11 +93,41 @@ func main() {
 		}
 	}
 
+	// Set up graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
 	// Default behavior: run a scan
 	logrus.Info("No command specified, running scan...")
-	if err := runScan(context.Background(), monitorService); err != nil {
-		logrus.Errorf("Scan failed: %v", err)
-		os.Exit(1)
+
+	// Run scan in a goroutine so we can handle shutdown signals
+	scanDone := make(chan error, 1)
+	go func() {
+		// Add a reasonable timeout for the scan
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		scanDone <- runScan(ctx, monitorService)
+	}()
+
+	// Wait for either scan completion or shutdown signal
+	select {
+	case err := <-scanDone:
+		if err != nil {
+			logrus.Errorf("Scan failed: %v", err)
+			os.Exit(1)
+		}
+	case sig := <-sigChan:
+		logrus.Infof("Received signal %v, shutting down gracefully...", sig)
+		// Give the scan a chance to complete
+		select {
+		case err := <-scanDone:
+			if err != nil {
+				logrus.Errorf("Scan failed: %v", err)
+				os.Exit(1)
+			}
+		case <-time.After(30 * time.Second):
+			logrus.Warn("Scan did not complete within 30 seconds, forcing shutdown")
+		}
 	}
 }
 
@@ -112,6 +151,24 @@ func connectToDatabase(cfg *config.Config) (*sqlx.DB, error) {
 
 	logrus.Info("Successfully connected to database")
 	return db, nil
+}
+
+// runMigrations executes database migrations
+func runMigrations(db *sqlx.DB) error {
+	// Read migration file
+	migrationSQL, err := os.ReadFile("migrations/001_initial_schema.sql")
+	if err != nil {
+		return fmt.Errorf("failed to read migration file: %w", err)
+	}
+
+	// Execute migration
+	_, err = db.Exec(string(migrationSQL))
+	if err != nil {
+		return fmt.Errorf("failed to execute migration: %w", err)
+	}
+
+	logrus.Info("Database migrations completed successfully")
+	return nil
 }
 
 // runScan performs a single scan

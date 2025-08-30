@@ -124,6 +124,7 @@ func (c *Client) DiscoverDomain(ctx context.Context, domain string) (*DiscoveryR
 }
 
 // DiscoverDomainsBulk discovers subdomains for multiple domains in bulk
+// This uses the bulk endpoint for efficiency when available
 func (c *Client) DiscoverDomainsBulk(ctx context.Context, domains []string) (*BulkDiscoveryResult, error) {
 	if len(domains) == 0 {
 		return &BulkDiscoveryResult{
@@ -162,11 +163,23 @@ func (c *Client) DiscoverDomainsBulk(ctx context.Context, domains []string) (*Bu
 		}, nil
 	}
 
+	// Try bulk endpoint first, fallback to concurrent if not available
+	bulkResult, err := c.tryBulkEndpoint(ctx, cleanDomains)
+	if err != nil {
+		logrus.Warnf("Bulk endpoint failed, falling back to concurrent requests: %v", err)
+		return c.DiscoverDomainsConcurrent(ctx, cleanDomains, 10)
+	}
+
+	return bulkResult, nil
+}
+
+// tryBulkEndpoint attempts to use the bulk endpoint for efficiency
+func (c *Client) tryBulkEndpoint(ctx context.Context, domains []string) (*BulkDiscoveryResult, error) {
 	c.rateLimiter.Wait()
 
 	// Prepare bulk request
 	bulkRequest := ChaosDBBulkRequest{
-		Domains: cleanDomains,
+		Domains: domains,
 	}
 
 	resp, err := c.httpClient.R().
