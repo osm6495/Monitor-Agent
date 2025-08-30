@@ -1,0 +1,63 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+docs/
+*.md
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Database files
+*.db
+*.sqlite
+
+# Build artifacts
+build/
+dist/
+monitor-agent
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Coverage reports
+coverage.txt
+coverage.html
+
+# Temporary files
+tmp/
+temp/
+
+# Docker files
+docker/
+.dockerignore
+
+# Scripts
+scripts/
+
+# Makefile
+Makefile
+
+# Test directories (but keep test files in source directories)
+tests/manual/
+tests/integration/

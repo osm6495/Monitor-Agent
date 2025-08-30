@@ -45,9 +45,6 @@ logs/
 *.db
 *.sqlite
 
-# Docker
-.dockerignore
-
 # Build artifacts
 build/
 dist/
