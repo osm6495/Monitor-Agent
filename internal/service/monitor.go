@@ -172,8 +172,8 @@ func (s *MonitorService) scanPlatform(ctx context.Context, platform platforms.Pl
 func (s *MonitorService) processProgram(ctx context.Context, platform platforms.Platform, program *platforms.Program) error {
 	logrus.Infof("Processing program: %s (%s)", program.Name, program.Platform)
 
-	// Check if program already exists in database
-	existingProgram, err := s.programRepo.GetProgramByPlatformAndURL(ctx, program.Platform, program.URL)
+	// Check if program already exists in database using ProgramURL as the unique identifier
+	existingProgram, err := s.programRepo.GetProgramByPlatformAndProgramURL(ctx, program.Platform, program.ProgramURL)
 	if err != nil {
 		return fmt.Errorf("failed to check existing program: %w", err)
 	}
@@ -190,6 +190,22 @@ func (s *MonitorService) processProgram(ctx context.Context, platform platforms.
 		}
 
 		logrus.Infof("Updated existing program: %s", program.Name)
+
+		// Check if there are new primary assets before running discovery
+		hasNewAssets, err := s.hasNewPrimaryAssets(ctx, existingProgram, platform)
+		if err != nil {
+			logrus.Warnf("Failed to check for new primary assets for program %s: %v", program.Name, err)
+			// Continue with discovery as fallback
+		} else if !hasNewAssets {
+			logrus.Infof("No new primary assets found for program %s, skipping asset discovery", program.Name)
+			return nil
+		}
+
+		// Refresh assets for existing programs only if new primary assets are found
+		if err := s.discoverProgramAssets(ctx, existingProgram, platform); err != nil {
+			return fmt.Errorf("failed to refresh assets for existing program %s: %w", program.Name, err)
+		}
+
 		return nil
 	}
 
@@ -207,6 +223,36 @@ func (s *MonitorService) processProgram(ctx context.Context, platform platforms.
 	}
 
 	return nil
+}
+
+// hasNewPrimaryAssets checks if there are new primary assets compared to existing ones
+func (s *MonitorService) hasNewPrimaryAssets(ctx context.Context, program *database.Program, platform platforms.Platform) (bool, error) {
+	// Get current primary assets from database
+	existingPrimaryAssets, err := s.assetRepo.GetAssetsByProgramIDAndSource(ctx, program.ID, "primary")
+	if err != nil {
+		return false, fmt.Errorf("failed to get existing primary assets: %w", err)
+	}
+
+	// Get new scope assets from platform
+	scopeAssets, err := platform.GetProgramScope(ctx, program.ProgramURL)
+	if err != nil {
+		return false, fmt.Errorf("failed to get program scope: %w", err)
+	}
+
+	// Create a map of existing primary asset URLs for quick lookup
+	existingURLs := make(map[string]bool)
+	for _, asset := range existingPrimaryAssets {
+		existingURLs[asset.URL] = true
+	}
+
+	// Check if any new scope assets are not in existing primary assets
+	for _, scopeAsset := range scopeAssets {
+		if !existingURLs[scopeAsset.URL] {
+			return true, nil // Found a new primary asset
+		}
+	}
+
+	return false, nil // No new primary assets found
 }
 
 // discoverProgramAssets discovers assets for a program
@@ -243,33 +289,35 @@ func (s *MonitorService) discoverProgramAssets(ctx context.Context, program *dat
 
 	logrus.Infof("Found %d scope assets for program %s", len(scopeAssets), program.Name)
 
-	// Convert scope assets to database assets
-	var dbAssets []*database.Asset
+	// Save in-scope assets as primary assets
+	var primaryAssets []*database.Asset
 	for _, scopeAsset := range scopeAssets {
-		dbAsset := scopeAsset.ConvertToDatabaseAsset(program.ID.String())
-		dbAssets = append(dbAssets, dbAsset)
+		dbAsset := scopeAsset.ConvertToDatabaseAsset(program.ID.String(), program.ProgramURL)
+		dbAsset.Source = "primary" // Mark as primary asset
+		primaryAssets = append(primaryAssets, dbAsset)
 	}
 
-	// Save scope assets to database
-	if len(dbAssets) > 0 {
-		if err := s.assetRepo.CreateAssets(ctx, dbAssets); err != nil {
+	// Save primary assets to database
+	if len(primaryAssets) > 0 {
+		if err := s.assetRepo.CreateAssets(ctx, primaryAssets); err != nil {
 			scan.Status = "failed"
 			scan.Error = err.Error()
-			return fmt.Errorf("failed to save scope assets: %w", err)
+			return fmt.Errorf("failed to save primary assets: %w", err)
 		}
+		logrus.Infof("Saved %d primary assets for program %s", len(primaryAssets), program.Name)
 	}
 
 	// Extract unique domains for ChaosDB discovery
 	domains := s.extractUniqueDomains(scopeAssets)
 	logrus.Infof("Extracted %d unique domains for ChaosDB discovery", len(domains))
 
-	// Discover additional subdomains using ChaosDB
+	// Discover additional subdomains using ChaosDB (secondary assets)
 	if len(domains) > 0 {
-		chaosAssets, err := s.discoverWithChaosDB(ctx, program.ID, domains)
+		secondaryAssets, err := s.discoverWithChaosDB(ctx, program.ID, program.ProgramURL, domains)
 		if err != nil {
 			logrus.Warnf("ChaosDB discovery failed for program %s: %v", program.Name, err)
 		} else {
-			logrus.Infof("ChaosDB discovered %d additional assets for program %s", len(chaosAssets), program.Name)
+			logrus.Infof("ChaosDB discovered %d secondary assets for program %s", len(secondaryAssets), program.Name)
 		}
 	}
 
@@ -285,7 +333,7 @@ func (s *MonitorService) discoverProgramAssets(ctx context.Context, program *dat
 }
 
 // discoverWithChaosDB discovers additional subdomains using ChaosDB
-func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid.UUID, domains []string) ([]*database.Asset, error) {
+func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid.UUID, programURL string, domains []string) ([]*database.Asset, error) {
 	if s.chaosDBClient == nil {
 		logrus.Warn("ChaosDB client not configured, skipping discovery")
 		return nil, nil
@@ -324,12 +372,13 @@ func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid
 			}
 
 			asset := &database.Asset{
-				ProgramID: programID,
-				URL:       url,
-				Domain:    domain,
-				Subdomain: subdomainName,
-				Status:    "active",
-				Source:    "chaosdb",
+				ProgramID:  programID,
+				ProgramURL: programURL,
+				URL:        url,
+				Domain:     domain,
+				Subdomain:  subdomainName,
+				Status:     "active",
+				Source:     "secondary", // Mark as secondary asset from ChaosDB
 			}
 
 			assets = append(assets, asset)
@@ -376,14 +425,14 @@ func (s *MonitorService) markInactivePrograms(ctx context.Context, platformName 
 	}
 
 	// Create a map of current program URLs
-	currentURLs := make(map[string]bool)
+	currentProgramURLs := make(map[string]bool)
 	for _, program := range currentPrograms {
-		currentURLs[program.URL] = true
+		currentProgramURLs[program.ProgramURL] = true
 	}
 
 	// Mark programs as inactive if they're not in the current list
 	for _, dbProgram := range dbPrograms {
-		if !currentURLs[dbProgram.URL] {
+		if !currentProgramURLs[dbProgram.ProgramURL] {
 			if err := s.programRepo.MarkProgramInactive(ctx, dbProgram.ID); err != nil {
 				logrus.Errorf("Failed to mark program %s as inactive: %v", dbProgram.Name, err)
 				continue

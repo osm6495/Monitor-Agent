@@ -78,8 +78,18 @@ func (up *URLProcessor) ExtractSubdomain(urlStr string) (string, error) {
 
 // ConvertWildcardToDomain converts a wildcard domain to its base domain
 func (up *URLProcessor) ConvertWildcardToDomain(wildcard string) string {
-	// Remove the wildcard prefix and return the base domain
-	return strings.TrimPrefix(wildcard, "*.")
+	// Remove ALL wildcard prefixes and return the base domain
+	cleaned := wildcard
+
+	// Keep removing *. prefixes until none remain
+	for strings.HasPrefix(cleaned, "*.") {
+		cleaned = strings.TrimPrefix(cleaned, "*.")
+	}
+
+	// Remove any trailing dots
+	cleaned = strings.Trim(cleaned, ".")
+
+	return cleaned
 }
 
 // NormalizeURL normalizes a URL to a standard format

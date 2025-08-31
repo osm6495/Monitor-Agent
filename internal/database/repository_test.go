@@ -156,16 +156,17 @@ func TestAssetRepository_CreateAsset(t *testing.T) {
 
 	programID := uuid.New()
 	asset := &Asset{
-		ProgramID: programID,
-		URL:       "https://subdomain.example.com",
-		Domain:    "example.com",
-		Subdomain: "subdomain",
-		Status:    "active",
-		Source:    "chaosdb",
+		ProgramID:  programID,
+		ProgramURL: "https://example.com/program1",
+		URL:        "https://subdomain.example.com",
+		Domain:     "example.com",
+		Subdomain:  "subdomain",
+		Status:     "active",
+		Source:     "chaosdb",
 	}
 
 	mock.ExpectExec("INSERT INTO assets").
-		WithArgs(sqlmock.AnyArg(), asset.ProgramID, asset.URL, asset.Domain, asset.Subdomain, asset.IP, asset.Status, asset.Source, sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), asset.ProgramID, asset.ProgramURL, asset.URL, asset.Domain, asset.Subdomain, asset.IP, asset.Status, asset.Source, sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	err := repo.CreateAsset(ctx, asset)
@@ -185,27 +186,29 @@ func TestAssetRepository_CreateAssets(t *testing.T) {
 	programID := uuid.New()
 	assets := []*Asset{
 		{
-			ProgramID: programID,
-			URL:       "https://sub1.example.com",
-			Domain:    "example.com",
-			Subdomain: "sub1",
-			Status:    "active",
-			Source:    "chaosdb",
+			ProgramID:  programID,
+			ProgramURL: "https://example.com/program1",
+			URL:        "https://sub1.example.com",
+			Domain:     "example.com",
+			Subdomain:  "sub1",
+			Status:     "active",
+			Source:     "chaosdb",
 		},
 		{
-			ProgramID: programID,
-			URL:       "https://sub2.example.com",
-			Domain:    "example.com",
-			Subdomain: "sub2",
-			Status:    "active",
-			Source:    "chaosdb",
+			ProgramID:  programID,
+			ProgramURL: "https://example.com/program1",
+			URL:        "https://sub2.example.com",
+			Domain:     "example.com",
+			Subdomain:  "sub2",
+			Status:     "active",
+			Source:     "chaosdb",
 		},
 	}
 
 	mock.ExpectBegin()
 	for i := 0; i < 2; i++ {
 		mock.ExpectExec("INSERT INTO assets").
-			WithArgs(sqlmock.AnyArg(), programID, assets[i].URL, assets[i].Domain, assets[i].Subdomain, assets[i].IP, assets[i].Status, assets[i].Source, sqlmock.AnyArg(), sqlmock.AnyArg()).
+			WithArgs(sqlmock.AnyArg(), programID, assets[i].ProgramURL, assets[i].URL, assets[i].Domain, assets[i].Subdomain, assets[i].IP, assets[i].Status, assets[i].Source, sqlmock.AnyArg(), sqlmock.AnyArg()).
 			WillReturnResult(sqlmock.NewResult(1, 1))
 	}
 	mock.ExpectCommit()
@@ -224,32 +227,34 @@ func TestAssetRepository_GetAssetsByProgramID(t *testing.T) {
 	programID := uuid.New()
 	expectedAssets := []*Asset{
 		{
-			ID:        uuid.New(),
-			ProgramID: programID,
-			URL:       "https://sub1.example.com",
-			Domain:    "example.com",
-			Subdomain: "sub1",
-			Status:    "active",
-			Source:    "chaosdb",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			ID:         uuid.New(),
+			ProgramID:  programID,
+			ProgramURL: "https://example.com/program1",
+			URL:        "https://sub1.example.com",
+			Domain:     "example.com",
+			Subdomain:  "sub1",
+			Status:     "active",
+			Source:     "chaosdb",
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
 		},
 		{
-			ID:        uuid.New(),
-			ProgramID: programID,
-			URL:       "https://sub2.example.com",
-			Domain:    "example.com",
-			Subdomain: "sub2",
-			Status:    "active",
-			Source:    "chaosdb",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			ID:         uuid.New(),
+			ProgramID:  programID,
+			ProgramURL: "https://example.com/program1",
+			URL:        "https://sub2.example.com",
+			Domain:     "example.com",
+			Subdomain:  "sub2",
+			Status:     "active",
+			Source:     "chaosdb",
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
 		},
 	}
 
-	rows := sqlmock.NewRows([]string{"id", "program_id", "url", "domain", "subdomain", "ip", "status", "source", "created_at", "updated_at"})
+	rows := sqlmock.NewRows([]string{"id", "program_id", "program_url", "url", "domain", "subdomain", "ip", "status", "source", "created_at", "updated_at"})
 	for _, a := range expectedAssets {
-		rows.AddRow(a.ID, a.ProgramID, a.URL, a.Domain, a.Subdomain, a.IP, a.Status, a.Source, a.CreatedAt, a.UpdatedAt)
+		rows.AddRow(a.ID, a.ProgramID, a.ProgramURL, a.URL, a.Domain, a.Subdomain, a.IP, a.Status, a.Source, a.CreatedAt, a.UpdatedAt)
 	}
 
 	mock.ExpectQuery("SELECT \\* FROM assets WHERE program_id = \\$1 ORDER BY created_at DESC").
@@ -278,6 +283,60 @@ func TestAssetRepository_DeleteAssetsByProgramID(t *testing.T) {
 
 	err := repo.DeleteAssetsByProgramID(ctx, programID)
 	assert.NoError(t, err)
+}
+
+func TestAssetRepository_GetAssetsByProgramIDAndSource(t *testing.T) {
+	db, mock, cleanup := setupMockDB(t)
+	defer cleanup()
+
+	repo := NewAssetRepository(db)
+	ctx := context.Background()
+
+	programID := uuid.New()
+	source := "primary"
+	expectedAssets := []*Asset{
+		{
+			ID:         uuid.New(),
+			ProgramID:  programID,
+			ProgramURL: "https://example.com/program1",
+			URL:        "https://sub1.example.com",
+			Domain:     "example.com",
+			Subdomain:  "sub1",
+			Status:     "active",
+			Source:     source,
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
+		},
+		{
+			ID:         uuid.New(),
+			ProgramID:  programID,
+			ProgramURL: "https://example.com/program1",
+			URL:        "https://sub2.example.com",
+			Domain:     "example.com",
+			Subdomain:  "sub2",
+			Status:     "active",
+			Source:     source,
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
+		},
+	}
+
+	rows := sqlmock.NewRows([]string{"id", "program_id", "program_url", "url", "domain", "subdomain", "ip", "status", "source", "created_at", "updated_at"})
+	for _, a := range expectedAssets {
+		rows.AddRow(a.ID, a.ProgramID, a.ProgramURL, a.URL, a.Domain, a.Subdomain, a.IP, a.Status, a.Source, a.CreatedAt, a.UpdatedAt)
+	}
+
+	mock.ExpectQuery("SELECT \\* FROM assets WHERE program_id = \\$1 AND source = \\$2 ORDER BY created_at DESC").
+		WithArgs(programID, source).
+		WillReturnRows(rows)
+
+	assets, err := repo.GetAssetsByProgramIDAndSource(ctx, programID, source)
+	assert.NoError(t, err)
+	assert.Len(t, assets, 2)
+	assert.Equal(t, expectedAssets[0].URL, assets[0].URL)
+	assert.Equal(t, expectedAssets[1].URL, assets[1].URL)
+	assert.Equal(t, source, assets[0].Source)
+	assert.Equal(t, source, assets[1].Source)
 }
 
 func TestScanRepository_CreateScan(t *testing.T) {

@@ -192,7 +192,7 @@ func (p *Program) ConvertToDatabaseProgram() *database.Program {
 }
 
 // ConvertToDatabaseAsset converts a ScopeAsset to a database Asset
-func (sa *ScopeAsset) ConvertToDatabaseAsset(programID string) *database.Asset {
+func (sa *ScopeAsset) ConvertToDatabaseAsset(programID string, programURL string) *database.Asset {
 	// Parse the programID string to UUID
 	programUUID, err := uuid.Parse(programID)
 	if err != nil {
@@ -201,11 +201,12 @@ func (sa *ScopeAsset) ConvertToDatabaseAsset(programID string) *database.Asset {
 	}
 
 	return &database.Asset{
-		ProgramID: programUUID,
-		URL:       sa.URL,
-		Domain:    sa.Domain,
-		Subdomain: sa.Subdomain,
-		Status:    "active",
-		Source:    "direct",
+		ProgramID:  programUUID,
+		ProgramURL: programURL,
+		URL:        sa.URL,
+		Domain:     sa.Domain,
+		Subdomain:  sa.Subdomain,
+		Status:     "active",
+		Source:     "direct",
 	}
 }

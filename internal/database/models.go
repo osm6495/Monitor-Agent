@@ -21,16 +21,17 @@ type Program struct {
 
 // Asset represents a discovered asset (subdomain/URL)
 type Asset struct {
-	ID        uuid.UUID `db:"id" json:"id"`
-	ProgramID uuid.UUID `db:"program_id" json:"program_id"`
-	URL       string    `db:"url" json:"url"`
-	Domain    string    `db:"domain" json:"domain"`
-	Subdomain string    `db:"subdomain" json:"subdomain"`
-	IP        string    `db:"ip" json:"ip"`
-	Status    string    `db:"status" json:"status"` // active, inactive, etc.
-	Source    string    `db:"source" json:"source"` // chaosdb, direct, etc.
-	CreatedAt time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
+	ID         uuid.UUID `db:"id" json:"id"`
+	ProgramID  uuid.UUID `db:"program_id" json:"program_id"`
+	ProgramURL string    `db:"program_url" json:"program_url"`
+	URL        string    `db:"url" json:"url"`
+	Domain     string    `db:"domain" json:"domain"`
+	Subdomain  string    `db:"subdomain" json:"subdomain"`
+	IP         string    `db:"ip" json:"ip"`
+	Status     string    `db:"status" json:"status"` // active, inactive, etc.
+	Source     string    `db:"source" json:"source"` // chaosdb, direct, etc.
+	CreatedAt  time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt  time.Time `db:"updated_at" json:"updated_at"`
 }
 
 // AssetResponse represents HTTP response information for an asset

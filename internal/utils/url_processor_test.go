@@ -133,6 +133,16 @@ func TestURLProcessor_ConvertWildcardToDomain(t *testing.T) {
 			expected: "subdomain.example.com",
 		},
 		{
+			name:     "multiple wildcards",
+			wildcard: "*.*.example.com",
+			expected: "example.com",
+		},
+		{
+			name:     "multiple wildcards with subdomain",
+			wildcard: "*.*.subdomain.example.com",
+			expected: "subdomain.example.com",
+		},
+		{
 			name:     "no wildcard",
 			wildcard: "example.com",
 			expected: "example.com",

@@ -110,6 +110,22 @@ func (r *ProgramRepository) GetProgramByPlatformAndURL(ctx context.Context, plat
 	return &program, nil
 }
 
+// GetProgramByPlatformAndProgramURL retrieves a program by platform and program URL
+func (r *ProgramRepository) GetProgramByPlatformAndProgramURL(ctx context.Context, platform, programURL string) (*Program, error) {
+	var program Program
+	query := `SELECT * FROM programs WHERE platform = $1 AND program_url = $2`
+
+	err := r.db.GetContext(ctx, &program, query, platform, programURL)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get program: %w", err)
+	}
+
+	return &program, nil
+}
+
 // GetAllActivePrograms retrieves all active programs
 func (r *ProgramRepository) GetAllActivePrograms(ctx context.Context) ([]*Program, error) {
 	var programs []*Program
@@ -216,9 +232,10 @@ func (r *AssetRepository) CreateAsset(ctx context.Context, asset *Asset) error {
 	asset.UpdatedAt = time.Now()
 
 	query := `
-		INSERT INTO assets (id, program_id, url, domain, subdomain, ip, status, source, created_at, updated_at)
-		VALUES (:id, :program_id, :url, :domain, :subdomain, :ip, :status, :source, :created_at, :updated_at)
+		INSERT INTO assets (id, program_id, program_url, url, domain, subdomain, ip, status, source, created_at, updated_at)
+		VALUES (:id, :program_id, :program_url, :url, :domain, :subdomain, :ip, :status, :source, :created_at, :updated_at)
 		ON CONFLICT (program_id, url) DO UPDATE SET
+			program_url = EXCLUDED.program_url,
 			domain = EXCLUDED.domain,
 			subdomain = EXCLUDED.subdomain,
 			ip = EXCLUDED.ip,
@@ -248,9 +265,10 @@ func (r *AssetRepository) CreateAssets(ctx context.Context, assets []*Asset) err
 	}()
 
 	query := `
-		INSERT INTO assets (id, program_id, url, domain, subdomain, ip, status, source, created_at, updated_at)
-		VALUES (:id, :program_id, :url, :domain, :subdomain, :ip, :status, :source, :created_at, :updated_at)
+		INSERT INTO assets (id, program_id, program_url, url, domain, subdomain, ip, status, source, created_at, updated_at)
+		VALUES (:id, :program_id, :program_url, :url, :domain, :subdomain, :ip, :status, :source, :created_at, :updated_at)
 		ON CONFLICT (program_id, url) DO UPDATE SET
+			program_url = EXCLUDED.program_url,
 			domain = EXCLUDED.domain,
 			subdomain = EXCLUDED.subdomain,
 			ip = EXCLUDED.ip,
@@ -285,6 +303,19 @@ func (r *AssetRepository) GetAssetsByProgramID(ctx context.Context, programID uu
 	err := r.db.SelectContext(ctx, &assets, query, programID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get assets by program ID: %w", err)
+	}
+
+	return assets, nil
+}
+
+// GetAssetsByProgramIDAndSource retrieves assets by program ID and source
+func (r *AssetRepository) GetAssetsByProgramIDAndSource(ctx context.Context, programID uuid.UUID, source string) ([]*Asset, error) {
+	var assets []*Asset
+	query := `SELECT * FROM assets WHERE program_id = $1 AND source = $2 ORDER BY created_at DESC`
+
+	err := r.db.SelectContext(ctx, &assets, query, programID, source)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get assets by program ID and source: %w", err)
 	}
 
 	return assets, nil

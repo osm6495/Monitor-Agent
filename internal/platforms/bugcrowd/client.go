@@ -20,9 +20,10 @@ const (
 
 // Client represents a BugCrowd API client
 type Client struct {
-	httpClient  *resty.Client
-	config      *PlatformConfig
-	rateLimiter *utils.RateLimiter
+	httpClient   *resty.Client
+	config       *PlatformConfig
+	rateLimiter  *utils.RateLimiter
+	urlProcessor *utils.URLProcessor // Added URLProcessor field
 }
 
 // NewBugCrowdClient creates a new BugCrowd client
@@ -46,9 +47,10 @@ func NewBugCrowdClient(config *PlatformConfig) *Client {
 	}
 
 	return &Client{
-		httpClient:  client,
-		config:      config,
-		rateLimiter: utils.NewRateLimiter(config.RateLimit, time.Minute),
+		httpClient:   client,
+		config:       config,
+		rateLimiter:  utils.NewRateLimiter(config.RateLimit, time.Minute),
+		urlProcessor: utils.NewURLProcessor(), // Initialize URLProcessor
 	}
 }
 
@@ -218,7 +220,7 @@ func (c *Client) parseScopeAsset(target BugCrowdScope) *ScopeAsset {
 		}
 	case "wildcard":
 		// Convert wildcard to base domain for ChaosDB discovery
-		domain := c.convertWildcardToDomain(targetStr)
+		domain := c.urlProcessor.ConvertWildcardToDomain(targetStr)
 		return &ScopeAsset{
 			URL:    domain,
 			Domain: domain,
@@ -251,28 +253,27 @@ func (c *Client) extractCodeFromURL(programURL string) (string, error) {
 
 // extractDomain extracts the domain from a URL
 func (c *Client) extractDomain(urlStr string) string {
-	// Simple domain extraction - in production, you might want to use a proper URL parser
-	if strings.HasPrefix(urlStr, "http://") || strings.HasPrefix(urlStr, "https://") {
-		// Remove protocol
-		urlStr = strings.TrimPrefix(urlStr, "http://")
-		urlStr = strings.TrimPrefix(urlStr, "https://")
+	// Use URLProcessor for consistent domain extraction
+	domain, err := c.urlProcessor.ExtractDomain(urlStr)
+	if err != nil {
+		// Fallback to simple extraction if URLProcessor fails
+		if strings.HasPrefix(urlStr, "http://") || strings.HasPrefix(urlStr, "https://") {
+			urlStr = strings.TrimPrefix(urlStr, "http://")
+			urlStr = strings.TrimPrefix(urlStr, "https://")
+		}
+
+		// Remove path and query parameters
+		if idx := strings.Index(urlStr, "/"); idx != -1 {
+			urlStr = urlStr[:idx]
+		}
+
+		// Remove port if present
+		if idx := strings.Index(urlStr, ":"); idx != -1 {
+			urlStr = urlStr[:idx]
+		}
+
+		return urlStr
 	}
 
-	// Remove path and query parameters
-	if idx := strings.Index(urlStr, "/"); idx != -1 {
-		urlStr = urlStr[:idx]
-	}
-
-	// Remove port if present
-	if idx := strings.Index(urlStr, ":"); idx != -1 {
-		urlStr = urlStr[:idx]
-	}
-
-	return urlStr
-}
-
-// convertWildcardToDomain converts a wildcard domain to its base domain
-func (c *Client) convertWildcardToDomain(wildcard string) string {
-	// Remove the wildcard prefix and return the base domain
-	return strings.TrimPrefix(wildcard, "*.")
+	return domain
 }

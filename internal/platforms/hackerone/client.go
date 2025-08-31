@@ -20,9 +20,10 @@ const (
 
 // Client represents a HackerOne API client
 type Client struct {
-	httpClient  *resty.Client
-	config      *PlatformConfig
-	rateLimiter *utils.RateLimiter
+	httpClient   *resty.Client
+	config       *PlatformConfig
+	rateLimiter  *utils.RateLimiter
+	urlProcessor *utils.URLProcessor // Added URLProcessor field
 }
 
 // NewHackerOneClient creates a new HackerOne client
@@ -50,9 +51,10 @@ func NewHackerOneClient(config *PlatformConfig) *Client {
 	}
 
 	return &Client{
-		httpClient:  client,
-		config:      config,
-		rateLimiter: utils.NewRateLimiter(config.RateLimit, time.Minute),
+		httpClient:   client,
+		config:       config,
+		rateLimiter:  utils.NewRateLimiter(config.RateLimit, time.Minute),
+		urlProcessor: utils.NewURLProcessor(), // Initialize URLProcessor
 	}
 }
 
@@ -111,9 +113,6 @@ func (c *Client) getProgramsPage(ctx context.Context, page, pageSize int) ([]*Pr
 	params := url.Values{}
 	params.Set("page[number]", fmt.Sprintf("%d", page))
 	params.Set("page[size]", fmt.Sprintf("%d", pageSize))
-	// Remove filters to see what we get
-	// params.Set("filter[state]", "public")
-	// params.Set("filter[offers_bounties]", "true")
 
 	resp, err := c.httpClient.R().
 		SetContext(ctx).
@@ -131,18 +130,9 @@ func (c *Client) getProgramsPage(ctx context.Context, page, pageSize int) ([]*Pr
 		return nil, false, fmt.Errorf("HackerOne API returned status %d", resp.StatusCode())
 	}
 
-	// Debug: Log response body
-	logrus.Debugf("HackerOne API response body: %s", string(resp.Body()))
-
 	var apiResp HackerOneResponse
 	if err := json.Unmarshal(resp.Body(), &apiResp); err != nil {
 		return nil, false, fmt.Errorf("failed to unmarshal response: %w", err)
-	}
-
-	// Debug logging
-	logrus.Debugf("HackerOne API response: %d programs in data", len(apiResp.Data))
-	if len(apiResp.Data) > 0 {
-		logrus.Debugf("First program: %+v", apiResp.Data[0])
 	}
 
 	var programs []*Program
@@ -241,7 +231,7 @@ func (c *Client) parseScopeAsset(attr ScopeAttributes) *ScopeAsset {
 		}
 	case "WILDCARD":
 		// Convert wildcard to base domain for ChaosDB discovery
-		domain := c.convertWildcardToDomain(assetIdentifier)
+		domain := c.urlProcessor.ConvertWildcardToDomain(assetIdentifier)
 		return &ScopeAsset{
 			URL:    domain,
 			Domain: domain,
@@ -275,28 +265,27 @@ func (c *Client) extractHandleFromURL(programURL string) (string, error) {
 
 // extractDomain extracts the domain from a URL
 func (c *Client) extractDomain(urlStr string) string {
-	// Simple domain extraction - in production, you might want to use a proper URL parser
-	if strings.HasPrefix(urlStr, "http://") || strings.HasPrefix(urlStr, "https://") {
-		// Remove protocol
-		urlStr = strings.TrimPrefix(urlStr, "http://")
-		urlStr = strings.TrimPrefix(urlStr, "https://")
+	// Use URLProcessor for consistent domain extraction
+	domain, err := c.urlProcessor.ExtractDomain(urlStr)
+	if err != nil {
+		// Fallback to simple extraction if URLProcessor fails
+		if strings.HasPrefix(urlStr, "http://") || strings.HasPrefix(urlStr, "https://") {
+			urlStr = strings.TrimPrefix(urlStr, "http://")
+			urlStr = strings.TrimPrefix(urlStr, "https://")
+		}
+
+		// Remove path and query parameters
+		if idx := strings.Index(urlStr, "/"); idx != -1 {
+			urlStr = urlStr[:idx]
+		}
+
+		// Remove port if present
+		if idx := strings.Index(urlStr, ":"); idx != -1 {
+			urlStr = urlStr[:idx]
+		}
+
+		return urlStr
 	}
 
-	// Remove path and query parameters
-	if idx := strings.Index(urlStr, "/"); idx != -1 {
-		urlStr = urlStr[:idx]
-	}
-
-	// Remove port if present
-	if idx := strings.Index(urlStr, ":"); idx != -1 {
-		urlStr = urlStr[:idx]
-	}
-
-	return urlStr
-}
-
-// convertWildcardToDomain converts a wildcard domain to its base domain
-func (c *Client) convertWildcardToDomain(wildcard string) string {
-	// Remove the wildcard prefix and return the base domain
-	return strings.TrimPrefix(wildcard, "*.")
+	return domain
 }
