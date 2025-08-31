@@ -118,7 +118,7 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid DB_MAX_IDLE_CONNS: %w", err)
 	}
 
-	connectTimeout, err := time.ParseDuration(getEnv("DB_CONNECT_TIMEOUT", "30s"))
+	connectTimeout, err := time.ParseDuration(getEnv("DB_CONNECT_TIMEOUT", "60s"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid DB_CONNECT_TIMEOUT: %w", err)
 	}
@@ -183,7 +183,7 @@ func Load() (*Config, error) {
 	}
 
 	// HTTP configuration
-	timeout, err := time.ParseDuration(getEnv("HTTP_TIMEOUT", "30s"))
+	timeout, err := time.ParseDuration(getEnv("HTTP_TIMEOUT", "60s"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid HTTP_TIMEOUT: %w", err)
 	}
@@ -213,7 +213,7 @@ func Load() (*Config, error) {
 	// HTTPX configuration
 	httpxEnabled := getEnv("HTTPX_ENABLED", "true") == "true"
 
-	httpxTimeout, err := time.ParseDuration(getEnv("HTTPX_TIMEOUT", "30s"))
+	httpxTimeout, err := time.ParseDuration(getEnv("HTTPX_TIMEOUT", "15s"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid HTTPX_TIMEOUT: %w", err)
 	}

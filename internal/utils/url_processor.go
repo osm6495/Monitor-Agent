@@ -17,6 +17,16 @@ func NewURLProcessor() *URLProcessor {
 
 // ExtractDomain extracts the domain from a URL
 func (up *URLProcessor) ExtractDomain(urlStr string) (string, error) {
+	// Handle empty or whitespace-only URLs
+	if strings.TrimSpace(urlStr) == "" {
+		return "", fmt.Errorf("empty URL provided")
+	}
+
+	// Handle URLs that are just protocol without hostname
+	if strings.TrimSpace(urlStr) == "http://" || strings.TrimSpace(urlStr) == "https://" {
+		return "", fmt.Errorf("no hostname found in URL: %s", urlStr)
+	}
+
 	// Handle wildcard domains
 	if strings.HasPrefix(urlStr, "*.") {
 		return strings.TrimPrefix(urlStr, "*."), nil
@@ -166,6 +176,11 @@ func (up *URLProcessor) extractDomainManually(urlStr string) string {
 
 	// Remove any leading/trailing whitespace
 	urlStr = strings.TrimSpace(urlStr)
+
+	// Return empty string if nothing left after processing
+	if urlStr == "" {
+		return ""
+	}
 
 	return urlStr
 }

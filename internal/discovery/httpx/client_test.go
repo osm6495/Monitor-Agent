@@ -74,6 +74,56 @@ func TestProbeDomains_EmptyList(t *testing.T) {
 	assert.Empty(t, results)
 }
 
+func TestProbeDomains_EmptyDomains(t *testing.T) {
+	client := NewClient(nil)
+	ctx := context.Background()
+
+	// Test with domains that are empty or just protocol
+	domains := []string{
+		"",
+		"   ",
+		"https://",
+		"http://",
+		"example.com", // This one should work
+	}
+
+	results, err := client.ProbeDomains(ctx, domains)
+	require.NoError(t, err)
+	// Should only get results for valid domains
+	assert.Len(t, results, 1)
+	assert.Equal(t, "https://example.com", results[0].URL)
+}
+
+func TestProbeDomains_PerURLTimeout(t *testing.T) {
+	// Use mock client with delay to test per-URL timeout behavior
+	// This avoids making real network requests that could hang
+	client := NewMockClient([]string{"example.com", "google.com"}, 2*time.Second)
+	ctx := context.Background()
+
+	// Test with a mix of domains - some should timeout due to mock delay
+	domains := []string{
+		"example.com", // Should exist in mock
+		"google.com",  // Should exist in mock
+		"this-domain-definitely-does-not-exist-12345.com", // Should not exist in mock
+	}
+
+	results, err := client.ProbeDomains(ctx, domains)
+	require.NoError(t, err)
+
+	// Should get results for all domains
+	assert.Len(t, results, len(domains))
+
+	// Check that we got results for each domain
+	urls := make(map[string]bool)
+	for _, result := range results {
+		urls[result.URL] = true
+	}
+
+	assert.True(t, urls["https://example.com"])
+	assert.True(t, urls["https://google.com"])
+	assert.True(t, urls["https://this-domain-definitely-does-not-exist-12345.com"])
+}
+
 func TestProbeDomains_ValidDomains(t *testing.T) {
 	// Use mock client with known existing domains
 	existingDomains := []string{"google.com", "github.com", "example.com"}
@@ -195,6 +245,21 @@ func TestExtractDomainFromURL(t *testing.T) {
 			name:     "domain with trailing slash",
 			url:      "https://example.com/",
 			expected: "example.com",
+		},
+		{
+			name:     "empty URL",
+			url:      "",
+			expected: "",
+		},
+		{
+			name:     "protocol only URL",
+			url:      "https://",
+			expected: "",
+		},
+		{
+			name:     "http protocol only URL",
+			url:      "http://",
+			expected: "",
 		},
 	}
 

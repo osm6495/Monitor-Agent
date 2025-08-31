@@ -103,10 +103,11 @@ func main() {
 	// Run scan in a goroutine so we can handle shutdown signals
 	scanDone := make(chan error, 1)
 	go func() {
-		// Add a reasonable timeout for the scan
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-		defer cancel()
-		scanDone <- runScan(ctx, monitorService)
+		// No overall process timeout - let the scan run as long as needed
+		// Individual HTTPX probes will timeout after 15 seconds per URL
+		// This allows the process to continue through all bug bounty programs
+		// even if some HTTPX probes take longer than expected
+		scanDone <- runScan(context.Background(), monitorService)
 	}()
 
 	// Wait for either scan completion or shutdown signal

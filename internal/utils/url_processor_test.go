@@ -75,6 +75,30 @@ func TestURLProcessor_ExtractDomain(t *testing.T) {
 			expected: "example.com",
 			wantErr:  false,
 		},
+		{
+			name:     "empty URL",
+			url:      "",
+			expected: "",
+			wantErr:  true,
+		},
+		{
+			name:     "whitespace only URL",
+			url:      "   ",
+			expected: "",
+			wantErr:  true,
+		},
+		{
+			name:     "protocol only URL",
+			url:      "https://",
+			expected: "",
+			wantErr:  true,
+		},
+		{
+			name:     "http protocol only URL",
+			url:      "http://",
+			expected: "",
+			wantErr:  true,
+		},
 	}
 
 	for _, tt := range tests {

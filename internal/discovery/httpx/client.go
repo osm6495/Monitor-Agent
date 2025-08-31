@@ -20,7 +20,7 @@ type ProbeResult struct {
 
 // ProbeConfig holds configuration for the HTTPX probe
 type ProbeConfig struct {
-	Timeout         time.Duration
+	Timeout         time.Duration // Per-URL timeout (not total process timeout)
 	Concurrency     int
 	RateLimit       int
 	UserAgent       string
@@ -68,6 +68,11 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 			continue
 		}
 
+		// Skip domains that are just protocol without hostname
+		if cleanDomain == "http://" || cleanDomain == "https://" {
+			continue
+		}
+
 		// Add protocol if not present
 		if !strings.HasPrefix(cleanDomain, "http://") && !strings.HasPrefix(cleanDomain, "https://") {
 			urls = append(urls, fmt.Sprintf("https://%s", cleanDomain))
@@ -85,6 +90,8 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 	defer close(results)
 
 	// Create HTTPX runner options
+	// Note: Timeout is per-URL timeout, not total process timeout
+	// Each URL will timeout after the specified duration if it doesn't respond
 	options := &runner.Options{
 		InputTargetHost: urls,
 		RateLimit:       c.config.RateLimit,
@@ -177,9 +184,19 @@ func (c *Client) FilterExistingDomains(ctx context.Context, domains []string) ([
 
 // ExtractDomainFromURL extracts the domain from a URL
 func (c *Client) ExtractDomainFromURL(urlStr string) string {
+	// Handle empty or invalid URLs
+	if strings.TrimSpace(urlStr) == "" {
+		return ""
+	}
+
 	// Remove protocol
 	urlStr = strings.TrimPrefix(urlStr, "https://")
 	urlStr = strings.TrimPrefix(urlStr, "http://")
+
+	// Handle URLs that are just protocol without hostname
+	if strings.TrimSpace(urlStr) == "" {
+		return ""
+	}
 
 	// Remove path and query parameters
 	if idx := strings.Index(urlStr, "/"); idx != -1 {
