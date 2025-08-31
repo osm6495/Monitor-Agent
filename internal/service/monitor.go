@@ -12,6 +12,7 @@ import (
 	"github.com/monitor-agent/internal/config"
 	"github.com/monitor-agent/internal/database"
 	"github.com/monitor-agent/internal/discovery/chaosdb"
+	"github.com/monitor-agent/internal/discovery/httpx"
 	"github.com/monitor-agent/internal/platforms"
 	"github.com/monitor-agent/internal/utils"
 	"github.com/sirupsen/logrus"
@@ -25,6 +26,7 @@ type MonitorService struct {
 	scanRepo        *database.ScanRepository
 	platformFactory *platforms.PlatformFactory
 	chaosDBClient   *chaosdb.Client
+	httpxClient     *httpx.Client
 	urlProcessor    *utils.URLProcessor
 }
 
@@ -81,6 +83,21 @@ func NewMonitorService(cfg *config.Config, db *sqlx.DB) *MonitorService {
 		logrus.Warn("ChaosDB API key not provided, ChaosDB discovery will be disabled")
 	}
 
+	// Initialize HTTPX client (only if enabled)
+	var httpxClient *httpx.Client
+	if cfg.Discovery.HTTPX.Enabled {
+		httpxClient = httpx.NewClient(&httpx.ProbeConfig{
+			Timeout:         cfg.Discovery.HTTPX.Timeout,
+			Concurrency:     cfg.Discovery.HTTPX.Concurrency,
+			RateLimit:       cfg.Discovery.HTTPX.RateLimit,
+			FollowRedirects: cfg.Discovery.HTTPX.FollowRedirects,
+			MaxRedirects:    cfg.Discovery.HTTPX.MaxRedirects,
+		})
+		logrus.Info("HTTPX probe client configured")
+	} else {
+		logrus.Info("HTTPX probe disabled")
+	}
+
 	return &MonitorService{
 		config:          cfg,
 		programRepo:     programRepo,
@@ -88,6 +105,7 @@ func NewMonitorService(cfg *config.Config, db *sqlx.DB) *MonitorService {
 		scanRepo:        scanRepo,
 		platformFactory: platformFactory,
 		chaosDBClient:   chaosDBClient,
+		httpxClient:     httpxClient,
 		urlProcessor:    utils.NewURLProcessor(),
 	}
 }
@@ -348,7 +366,7 @@ func (s *MonitorService) discoverProgramAssets(ctx context.Context, program *dat
 	return nil
 }
 
-// discoverWithChaosDB discovers additional subdomains using ChaosDB
+// discoverWithChaosDB discovers additional subdomains using ChaosDB and filters them with HTTPX probe
 func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid.UUID, programURL string, domains []string) ([]*database.Asset, error) {
 	if s.chaosDBClient == nil {
 		logrus.Warn("ChaosDB client not configured, skipping discovery")
@@ -363,45 +381,68 @@ func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid
 		return nil, fmt.Errorf("ChaosDB bulk discovery failed: %w", err)
 	}
 
-	var assets []*database.Asset
+	// Collect all subdomains from ChaosDB results
+	var allSubdomains []string
 	for _, result := range bulkResult.Results {
 		if result.Error != "" {
 			logrus.Warnf("ChaosDB error for domain %s: %s", result.Domain, result.Error)
 			continue
 		}
 
-		// Convert subdomains to assets
-		for _, subdomain := range result.Subdomains {
-			// Create full URL
-			url := fmt.Sprintf("https://%s", subdomain)
-
-			// Extract domain and subdomain
-			domain, err := s.urlProcessor.ExtractDomain(url)
-			if err != nil {
-				logrus.Warnf("Failed to extract domain from %s: %v", url, err)
-				continue
-			}
-
-			subdomainName, err := s.urlProcessor.ExtractSubdomain(url)
-			if err != nil {
-				logrus.Warnf("Failed to extract subdomain from %s: %v", url, err)
-			}
-
-			asset := &database.Asset{
-				ProgramID:  programID,
-				ProgramURL: programURL,
-				URL:        url,
-				Domain:     domain,
-				Subdomain:  subdomainName,
-				Status:     "active",
-				Source:     "secondary", // Mark as secondary asset from ChaosDB
-			}
-
-			assets = append(assets, asset)
-		}
+		allSubdomains = append(allSubdomains, result.Subdomains...)
 	}
 
-	// Save ChaosDB assets to database
+	logrus.Infof("ChaosDB discovered %d total subdomains", len(allSubdomains))
+
+	// Filter subdomains using HTTPX probe if enabled
+	var filteredSubdomains []string
+	if s.httpxClient != nil && len(allSubdomains) > 0 {
+		logrus.Infof("Starting HTTPX probe to filter %d subdomains", len(allSubdomains))
+
+		filteredSubdomains, err = s.httpxClient.FilterExistingDomains(ctx, allSubdomains)
+		if err != nil {
+			logrus.Warnf("HTTPX probe failed, using all subdomains: %v", err)
+			filteredSubdomains = allSubdomains
+		} else {
+			logrus.Infof("HTTPX probe completed: %d/%d subdomains exist", len(filteredSubdomains), len(allSubdomains))
+		}
+	} else {
+		logrus.Info("HTTPX probe not configured or no subdomains to probe, using all subdomains")
+		filteredSubdomains = allSubdomains
+	}
+
+	// Convert filtered subdomains to assets
+	var assets []*database.Asset
+	for _, subdomain := range filteredSubdomains {
+		// Create full URL
+		url := fmt.Sprintf("https://%s", subdomain)
+
+		// Extract domain and subdomain
+		domain, err := s.urlProcessor.ExtractDomain(url)
+		if err != nil {
+			logrus.Warnf("Failed to extract domain from %s: %v", url, err)
+			continue
+		}
+
+		subdomainName, err := s.urlProcessor.ExtractSubdomain(url)
+		if err != nil {
+			logrus.Warnf("Failed to extract subdomain from %s: %v", url, err)
+		}
+
+		asset := &database.Asset{
+			ProgramID:  programID,
+			ProgramURL: programURL,
+			URL:        url,
+			Domain:     domain,
+			Subdomain:  subdomainName,
+			Status:     "active",
+			Source:     "secondary", // Mark as secondary asset from ChaosDB
+		}
+
+		assets = append(assets, asset)
+	}
+
+	// Save filtered ChaosDB assets to database
 	if len(assets) > 0 {
 		if err := s.assetRepo.CreateAssets(ctx, assets); err != nil {
 			return nil, fmt.Errorf("failed to save ChaosDB assets: %w", err)

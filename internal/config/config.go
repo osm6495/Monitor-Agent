@@ -79,6 +79,17 @@ type HTTPConfig struct {
 // DiscoveryConfig holds discovery configuration
 type DiscoveryConfig struct {
 	BulkSize int
+	HTTPX    HTTPXConfig
+}
+
+// HTTPXConfig holds HTTPX probe configuration
+type HTTPXConfig struct {
+	Enabled         bool
+	Timeout         time.Duration
+	Concurrency     int
+	RateLimit       int
+	FollowRedirects bool
+	MaxRedirects    int
 }
 
 // Load loads configuration from environment variables
@@ -199,8 +210,41 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid CHAOSDB_BULK_SIZE: %w", err)
 	}
 
+	// HTTPX configuration
+	httpxEnabled := getEnv("HTTPX_ENABLED", "true") == "true"
+
+	httpxTimeout, err := time.ParseDuration(getEnv("HTTPX_TIMEOUT", "30s"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid HTTPX_TIMEOUT: %w", err)
+	}
+
+	httpxConcurrency, err := strconv.Atoi(getEnv("HTTPX_CONCURRENCY", "10"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid HTTPX_CONCURRENCY: %w", err)
+	}
+
+	httpxRateLimit, err := strconv.Atoi(getEnv("HTTPX_RATE_LIMIT", "100"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid HTTPX_RATE_LIMIT: %w", err)
+	}
+
+	httpxFollowRedirects := getEnv("HTTPX_FOLLOW_REDIRECTS", "true") == "true"
+
+	httpxMaxRedirects, err := strconv.Atoi(getEnv("HTTPX_MAX_REDIRECTS", "3"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid HTTPX_MAX_REDIRECTS: %w", err)
+	}
+
 	config.Discovery = DiscoveryConfig{
 		BulkSize: bulkSize,
+		HTTPX: HTTPXConfig{
+			Enabled:         httpxEnabled,
+			Timeout:         httpxTimeout,
+			Concurrency:     httpxConcurrency,
+			RateLimit:       httpxRateLimit,
+			FollowRedirects: httpxFollowRedirects,
+			MaxRedirects:    httpxMaxRedirects,
+		},
 	}
 
 	return config, nil
@@ -397,6 +441,22 @@ func (c *Config) validateHTTP() error {
 func (c *Config) validateDiscovery() error {
 	if c.Discovery.BulkSize <= 0 || c.Discovery.BulkSize > 1000 {
 		return fmt.Errorf("CHAOSDB_BULK_SIZE must be between 1 and 1000")
+	}
+
+	// Validate HTTPX configuration if enabled
+	if c.Discovery.HTTPX.Enabled {
+		if c.Discovery.HTTPX.Timeout <= 0 {
+			return fmt.Errorf("HTTPX_TIMEOUT must be greater than 0")
+		}
+		if c.Discovery.HTTPX.Concurrency <= 0 || c.Discovery.HTTPX.Concurrency > 100 {
+			return fmt.Errorf("HTTPX_CONCURRENCY must be between 1 and 100")
+		}
+		if c.Discovery.HTTPX.RateLimit <= 0 {
+			return fmt.Errorf("HTTPX_RATE_LIMIT must be greater than 0")
+		}
+		if c.Discovery.HTTPX.MaxRedirects < 0 || c.Discovery.HTTPX.MaxRedirects > 10 {
+			return fmt.Errorf("HTTPX_MAX_REDIRECTS must be between 0 and 10")
+		}
 	}
 
 	return nil

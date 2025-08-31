@@ -152,6 +152,14 @@ Monitor Agent
 #### Discovery Configuration
 - `CHAOSDB_BULK_SIZE`: Bulk size for ChaosDB requests
 
+#### HTTPX Probe Configuration
+- `HTTPX_ENABLED`: Enable HTTPX probe for filtering ChaosDB results (default: true)
+- `HTTPX_TIMEOUT`: HTTPX probe timeout (default: 30s)
+- `HTTPX_CONCURRENCY`: Number of concurrent HTTPX probes (default: 10)
+- `HTTPX_RATE_LIMIT`: HTTPX probe rate limit (default: 100)
+- `HTTPX_FOLLOW_REDIRECTS`: Follow HTTP redirects (default: true)
+- `HTTPX_MAX_REDIRECTS`: Maximum number of redirects to follow (default: 3)
+
 **Note**: API keys are optional. The application will only scan platforms that have valid API keys configured. If no API keys are provided, the application will start but cannot perform scans.
 
 #### Advanced Configuration
@@ -222,6 +230,10 @@ Since this application performs one-off scans, you can schedule it using:
 - Discovers additional subdomains for domains in scope
 - Rate limited to 60 requests per minute per IP
 - Supports API key authentication for higher limits
+- **HTTPX Probe Integration**: Automatically filters out non-existent domains using Project Discovery's HTTPX library
+  - Configurable timeout, concurrency, and rate limiting
+  - Follows redirects and handles various HTTP status codes
+  - Only saves domains that actually exist and respond to HTTP requests
 
 ## Database Schema
 

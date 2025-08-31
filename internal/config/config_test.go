@@ -78,6 +78,14 @@ func TestLoad(t *testing.T) {
 				},
 				Discovery: DiscoveryConfig{
 					BulkSize: 200,
+					HTTPX: HTTPXConfig{
+						Enabled:         true,
+						Timeout:         30 * time.Second,
+						Concurrency:     10,
+						RateLimit:       100,
+						FollowRedirects: true,
+						MaxRedirects:    3,
+					},
 				},
 			},
 			wantErr: false,
@@ -189,6 +197,14 @@ func TestLoad(t *testing.T) {
 				},
 				Discovery: DiscoveryConfig{
 					BulkSize: 100,
+					HTTPX: HTTPXConfig{
+						Enabled:         true,
+						Timeout:         30 * time.Second,
+						Concurrency:     10,
+						RateLimit:       100,
+						FollowRedirects: true,
+						MaxRedirects:    3,
+					},
 				},
 			},
 			wantErr: false,
@@ -267,6 +283,14 @@ func TestConfig_Validate(t *testing.T) {
 				},
 				Discovery: DiscoveryConfig{
 					BulkSize: 100,
+					HTTPX: HTTPXConfig{
+						Enabled:         true,
+						Timeout:         30 * time.Second,
+						Concurrency:     10,
+						RateLimit:       100,
+						FollowRedirects: true,
+						MaxRedirects:    3,
+					},
 				},
 			},
 			wantErr: false,
