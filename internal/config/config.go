@@ -47,6 +47,7 @@ type APIConfig struct {
 // HackerOneConfig holds HackerOne API configuration
 type HackerOneConfig struct {
 	APIKey    string
+	Username  string
 	RateLimit int
 }
 
@@ -151,6 +152,7 @@ func Load() (*Config, error) {
 	config.APIs = APIConfig{
 		HackerOne: HackerOneConfig{
 			APIKey:    getEnv("HACKERONE_API_KEY", ""),
+			Username:  getEnv("HACKERONE_USERNAME", ""),
 			RateLimit: hackerOneRateLimit,
 		},
 		BugCrowd: BugCrowdConfig{
@@ -428,9 +430,9 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-// HasHackerOneConfig returns true if HackerOne is configured with an API key
+// HasHackerOneConfig returns true if HackerOne is configured with an API key and username
 func (c *Config) HasHackerOneConfig() bool {
-	return c.APIs.HackerOne.APIKey != ""
+	return c.APIs.HackerOne.APIKey != "" && c.APIs.HackerOne.Username != ""
 }
 
 // HasBugCrowdConfig returns true if BugCrowd is configured with an API key

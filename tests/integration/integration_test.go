@@ -242,6 +242,7 @@ func TestConfigurationValidationIntegrationComprehensive(t *testing.T) {
 				APIs: config.APIConfig{
 					HackerOne: config.HackerOneConfig{
 						APIKey:    "h1_key",
+						Username:  "h1_user",
 						RateLimit: 550,
 					},
 					BugCrowd: config.BugCrowdConfig{
@@ -286,6 +287,7 @@ func TestConfigurationValidationIntegrationComprehensive(t *testing.T) {
 				APIs: config.APIConfig{
 					HackerOne: config.HackerOneConfig{
 						APIKey:    "", // Missing API key
+						Username:  "",
 						RateLimit: 550,
 					},
 					BugCrowd: config.BugCrowdConfig{
@@ -330,6 +332,7 @@ func TestConfigurationValidationIntegrationComprehensive(t *testing.T) {
 				APIs: config.APIConfig{
 					HackerOne: config.HackerOneConfig{
 						APIKey:    "h1_key",
+						Username:  "h1_user",
 						RateLimit: 550,
 					},
 					BugCrowd: config.BugCrowdConfig{
@@ -374,6 +377,7 @@ func TestConfigurationValidationIntegrationComprehensive(t *testing.T) {
 				APIs: config.APIConfig{
 					HackerOne: config.HackerOneConfig{
 						APIKey:    "h1_key",
+						Username:  "h1_user",
 						RateLimit: 550,
 					},
 					BugCrowd: config.BugCrowdConfig{

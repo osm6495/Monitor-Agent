@@ -30,6 +30,7 @@ func TestConfigurationValidationIntegration(t *testing.T) {
 			APIs: config.APIConfig{
 				HackerOne: config.HackerOneConfig{
 					APIKey:    "h1_key",
+					Username:  "h1_user",
 					RateLimit: 550,
 				},
 				BugCrowd: config.BugCrowdConfig{
@@ -77,6 +78,7 @@ func TestConfigurationValidationIntegration(t *testing.T) {
 			APIs: config.APIConfig{
 				HackerOne: config.HackerOneConfig{
 					APIKey:    "h1_key",
+					Username:  "h1_user",
 					RateLimit: 1000, // Exceeds limit
 				},
 				BugCrowd: config.BugCrowdConfig{
@@ -124,6 +126,7 @@ func TestConfigurationValidationIntegration(t *testing.T) {
 			APIs: config.APIConfig{
 				HackerOne: config.HackerOneConfig{
 					APIKey:    "h1_key",
+					Username:  "h1_user",
 					RateLimit: 550,
 				},
 				BugCrowd: config.BugCrowdConfig{
@@ -171,6 +174,7 @@ func TestConfigurationValidationIntegration(t *testing.T) {
 			APIs: config.APIConfig{
 				HackerOne: config.HackerOneConfig{
 					APIKey:    "h1_key",
+					Username:  "h1_user",
 					RateLimit: 550,
 				},
 				BugCrowd: config.BugCrowdConfig{

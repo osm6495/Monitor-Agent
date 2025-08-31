@@ -2,6 +2,7 @@ package hackerone
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -41,8 +42,20 @@ func NewHackerOneClient(config *PlatformConfig) *Client {
 	})
 
 	// Add authentication
-	if config.APIKey != "" {
-		client.SetBasicAuth("", config.APIKey)
+	if config.APIKey != "" && config.Username != "" {
+		// Try to decode the API key if it's base64 encoded
+		decodedKey := config.APIKey
+		if decoded, err := base64.StdEncoding.DecodeString(config.APIKey); err == nil {
+			decodedKey = string(decoded)
+		}
+		client.SetBasicAuth(config.Username, decodedKey)
+	} else if config.APIKey != "" {
+		// Fallback for backward compatibility - try with empty username
+		decodedKey := config.APIKey
+		if decoded, err := base64.StdEncoding.DecodeString(config.APIKey); err == nil {
+			decodedKey = string(decoded)
+		}
+		client.SetBasicAuth("", decodedKey)
 	}
 
 	return &Client{

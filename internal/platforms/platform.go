@@ -146,6 +146,7 @@ func (f *PlatformFactory) GetPlatform(name string) (Platform, error) {
 		// Convert config to hackerone.PlatformConfig
 		h1Config := &hackerone.PlatformConfig{
 			APIKey:        config.APIKey,
+			Username:      config.Username,
 			RateLimit:     config.RateLimit,
 			Timeout:       config.Timeout,
 			RetryAttempts: config.RetryAttempts,

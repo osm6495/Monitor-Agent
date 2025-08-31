@@ -25,6 +25,7 @@ func TestLoad(t *testing.T) {
 				"DB_USER":             "test_user",
 				"DB_PASSWORD":         "test_password",
 				"DB_SSL_MODE":         "require",
+				"HACKERONE_USERNAME":  "h1_user",
 				"HACKERONE_API_KEY":   "h1_key",
 				"BUGCROWD_API_KEY":    "bc_key",
 				"CHAOSDB_API_KEY":     "cd_key",
@@ -54,6 +55,7 @@ func TestLoad(t *testing.T) {
 				APIs: APIConfig{
 					HackerOne: HackerOneConfig{
 						APIKey:    "h1_key",
+						Username:  "h1_user",
 						RateLimit: 550,
 					},
 					BugCrowd: BugCrowdConfig{
@@ -139,10 +141,11 @@ func TestLoad(t *testing.T) {
 		{
 			name: "default rate limits when not provided",
 			envVars: map[string]string{
-				"DB_PASSWORD":       "test_password",
-				"HACKERONE_API_KEY": "h1_key",
-				"BUGCROWD_API_KEY":  "bc_key",
-				"CHAOSDB_API_KEY":   "cd_key",
+				"DB_PASSWORD":        "test_password",
+				"HACKERONE_USERNAME": "h1_user",
+				"HACKERONE_API_KEY":  "h1_key",
+				"BUGCROWD_API_KEY":   "bc_key",
+				"CHAOSDB_API_KEY":    "cd_key",
 			},
 			want: &Config{
 				Database: DatabaseConfig{
@@ -163,6 +166,7 @@ func TestLoad(t *testing.T) {
 				APIs: APIConfig{
 					HackerOne: HackerOneConfig{
 						APIKey:    "h1_key",
+						Username:  "h1_user",
 						RateLimit: 550,
 					},
 					BugCrowd: BugCrowdConfig{
@@ -240,6 +244,7 @@ func TestConfig_Validate(t *testing.T) {
 				APIs: APIConfig{
 					HackerOne: HackerOneConfig{
 						APIKey:    "h1_key",
+						Username:  "h1_user",
 						RateLimit: 550,
 					},
 					BugCrowd: BugCrowdConfig{
@@ -284,6 +289,7 @@ func TestConfig_Validate(t *testing.T) {
 				APIs: APIConfig{
 					HackerOne: HackerOneConfig{
 						APIKey:    "h1_key",
+						Username:  "h1_user",
 						RateLimit: 550,
 					},
 					BugCrowd: BugCrowdConfig{
@@ -328,6 +334,7 @@ func TestConfig_Validate(t *testing.T) {
 				APIs: APIConfig{
 					HackerOne: HackerOneConfig{
 						APIKey:    "",
+						Username:  "",
 						RateLimit: 550,
 					},
 					BugCrowd: BugCrowdConfig{
@@ -372,6 +379,7 @@ func TestConfig_Validate(t *testing.T) {
 				APIs: APIConfig{
 					HackerOne: HackerOneConfig{
 						APIKey:    "h1_key",
+						Username:  "h1_user",
 						RateLimit: 550,
 					},
 					BugCrowd: BugCrowdConfig{
@@ -416,6 +424,7 @@ func TestConfig_Validate(t *testing.T) {
 				APIs: APIConfig{
 					HackerOne: HackerOneConfig{
 						APIKey:    "h1_key",
+						Username:  "h1_user",
 						RateLimit: 550,
 					},
 					BugCrowd: BugCrowdConfig{
@@ -488,7 +497,8 @@ func TestConfig_PlatformConfiguration(t *testing.T) {
 	config := &Config{
 		APIs: APIConfig{
 			HackerOne: HackerOneConfig{
-				APIKey: "h1_key",
+				APIKey:   "h1_key",
+				Username: "h1_user",
 			},
 			BugCrowd: BugCrowdConfig{
 				APIKey: "",
@@ -516,7 +526,8 @@ func TestConfig_NoPlatformsConfigured(t *testing.T) {
 	config := &Config{
 		APIs: APIConfig{
 			HackerOne: HackerOneConfig{
-				APIKey: "",
+				APIKey:   "",
+				Username: "",
 			},
 			BugCrowd: BugCrowdConfig{
 				APIKey: "",

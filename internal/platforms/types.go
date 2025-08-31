@@ -41,6 +41,7 @@ type ScopeAsset struct {
 // PlatformConfig holds configuration for a platform
 type PlatformConfig struct {
 	APIKey        string
+	Username      string
 	RateLimit     int
 	Timeout       time.Duration
 	RetryAttempts int

@@ -132,6 +132,7 @@ Monitor Agent
 - `DB_CONN_MAX_LIFETIME`: Connection max lifetime
 
 #### API Configuration
+- `HACKERONE_USERNAME`: HackerOne username (required with API key)
 - `HACKERONE_API_KEY`: HackerOne API key (optional)
 - `BUGCROWD_API_KEY`: BugCrowd API key (optional)
 - `CHAOSDB_API_KEY`: ChaosDB API key (optional)
@@ -209,7 +210,8 @@ Since this application performs one-off scans, you can schedule it using:
 ### HackerOne
 - Fetches public programs and their scope
 - Rate limited to 600 requests per minute
-- Supports API key authentication
+- Requires both username and API key for authentication
+- Uses Basic Authentication with username:api_key format
 
 ### BugCrowd
 - Fetches public programs and their scope

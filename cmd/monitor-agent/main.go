@@ -58,7 +58,7 @@ func main() {
 	configuredPlatforms := cfg.GetConfiguredPlatforms()
 	if len(configuredPlatforms) == 0 {
 		logrus.Warn("No API keys configured. The application will start but cannot perform scans.")
-		logrus.Info("To enable scanning, set one or more of: HACKERONE_API_KEY, BUGCROWD_API_KEY, CHAOSDB_API_KEY")
+		logrus.Info("To enable scanning, set one or more of: HACKERONE_USERNAME+HACKERONE_API_KEY, BUGCROWD_API_KEY, CHAOSDB_API_KEY")
 	} else {
 		logrus.Infof("Configured platforms: %v", configuredPlatforms)
 	}
@@ -258,7 +258,7 @@ Commands:
 
 Environment Variables:
   DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD (required)
-  HACKERONE_API_KEY, BUGCROWD_API_KEY, CHAOSDB_API_KEY (optional)
+  HACKERONE_USERNAME, HACKERONE_API_KEY, BUGCROWD_API_KEY, CHAOSDB_API_KEY (optional)
   LOG_LEVEL, ENVIRONMENT
 
 Examples:

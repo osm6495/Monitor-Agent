@@ -42,6 +42,7 @@ func NewMonitorService(cfg *config.Config, db *sqlx.DB) *MonitorService {
 	if cfg.HasHackerOneConfig() {
 		platformFactory.RegisterPlatform("hackerone", &platforms.PlatformConfig{
 			APIKey:        cfg.APIs.HackerOne.APIKey,
+			Username:      cfg.APIs.HackerOne.Username,
 			RateLimit:     cfg.APIs.HackerOne.RateLimit,
 			Timeout:       cfg.HTTP.Timeout,
 			RetryAttempts: cfg.HTTP.RetryAttempts,
@@ -98,7 +99,7 @@ func (s *MonitorService) RunFullScan(ctx context.Context) error {
 	// Get all platforms
 	platformList := s.platformFactory.GetAllPlatforms()
 	if len(platformList) == 0 {
-		logrus.Warn("No platforms configured with API keys. Please provide at least one API key (HACKERONE_API_KEY, BUGCROWD_API_KEY, or CHAOSDB_API_KEY) to perform scans.")
+		logrus.Warn("No platforms configured with API keys. Please provide at least one API key (HACKERONE_USERNAME+HACKERONE_API_KEY, BUGCROWD_API_KEY, or CHAOSDB_API_KEY) to perform scans.")
 		return fmt.Errorf("no platforms configured with API keys")
 	}
 
