@@ -48,8 +48,32 @@ func TestURLProcessor_ExtractDomain(t *testing.T) {
 		{
 			name:     "IP address",
 			url:      "192.168.1.1",
-			expected: "",
-			wantErr:  true,
+			expected: "192.168.1.1",
+			wantErr:  false,
+		},
+		{
+			name:     "domain without protocol",
+			url:      "example.com",
+			expected: "example.com",
+			wantErr:  false,
+		},
+		{
+			name:     "subdomain without protocol",
+			url:      "subdomain.example.com",
+			expected: "subdomain.example.com",
+			wantErr:  false,
+		},
+		{
+			name:     "domain with path without protocol",
+			url:      "example.com/path",
+			expected: "example.com",
+			wantErr:  false,
+		},
+		{
+			name:     "domain with port without protocol",
+			url:      "example.com:8080",
+			expected: "example.com",
+			wantErr:  false,
 		},
 	}
 

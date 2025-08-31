@@ -22,6 +22,12 @@ func (up *URLProcessor) ExtractDomain(urlStr string) (string, error) {
 		return strings.TrimPrefix(urlStr, "*."), nil
 	}
 
+	// Handle domain names without protocol (common in bug bounty scopes)
+	if !strings.HasPrefix(urlStr, "http://") && !strings.HasPrefix(urlStr, "https://") && !strings.HasPrefix(urlStr, "//") {
+		// This looks like a domain name without protocol, extract it manually
+		return up.extractDomainManually(urlStr), nil
+	}
+
 	// Parse URL
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
@@ -146,6 +152,7 @@ func (up *URLProcessor) extractDomainManually(urlStr string) string {
 	// Remove protocol if present
 	urlStr = strings.TrimPrefix(urlStr, "http://")
 	urlStr = strings.TrimPrefix(urlStr, "https://")
+	urlStr = strings.TrimPrefix(urlStr, "//")
 
 	// Remove path and query parameters
 	if idx := strings.Index(urlStr, "/"); idx != -1 {
@@ -156,6 +163,9 @@ func (up *URLProcessor) extractDomainManually(urlStr string) string {
 	if idx := strings.Index(urlStr, ":"); idx != -1 {
 		urlStr = urlStr[:idx]
 	}
+
+	// Remove any leading/trailing whitespace
+	urlStr = strings.TrimSpace(urlStr)
 
 	return urlStr
 }

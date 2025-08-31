@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -72,13 +71,6 @@ func (c *Client) DiscoverDomain(ctx context.Context, domain string) (*DiscoveryR
 		return nil, fmt.Errorf("failed to extract domain from %s: %w", domain, err)
 	}
 
-	// Remove protocol and path
-	cleanDomain = strings.TrimPrefix(cleanDomain, "http://")
-	cleanDomain = strings.TrimPrefix(cleanDomain, "https://")
-	if idx := strings.Index(cleanDomain, "/"); idx != -1 {
-		cleanDomain = cleanDomain[:idx]
-	}
-
 	resp, err := c.httpClient.R().
 		SetContext(ctx).
 		SetQueryParam("domain", cleanDomain).
@@ -142,13 +134,6 @@ func (c *Client) DiscoverDomainsBulk(ctx context.Context, domains []string) (*Bu
 		if err != nil {
 			logrus.Warnf("Failed to extract domain from %s: %v", domain, err)
 			continue
-		}
-
-		// Remove protocol and path
-		cleanDomain = strings.TrimPrefix(cleanDomain, "http://")
-		cleanDomain = strings.TrimPrefix(cleanDomain, "https://")
-		if idx := strings.Index(cleanDomain, "/"); idx != -1 {
-			cleanDomain = cleanDomain[:idx]
 		}
 
 		cleanDomains = append(cleanDomains, cleanDomain)

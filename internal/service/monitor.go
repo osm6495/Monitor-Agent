@@ -289,12 +289,26 @@ func (s *MonitorService) discoverProgramAssets(ctx context.Context, program *dat
 
 	logrus.Infof("Found %d scope assets for program %s", len(scopeAssets), program.Name)
 
-	// Save in-scope assets as primary assets
+	// Log the first few scope assets for debugging
+	if len(scopeAssets) > 0 {
+		sampleSize := 3
+		if len(scopeAssets) < sampleSize {
+			sampleSize = len(scopeAssets)
+		}
+		logrus.Debugf("Sample scope assets for program %s: %v", program.Name, scopeAssets[:sampleSize])
+	}
+
+	// Save in-scope assets as primary assets (only domain and wildcard types)
 	var primaryAssets []*database.Asset
 	for _, scopeAsset := range scopeAssets {
-		dbAsset := scopeAsset.ConvertToDatabaseAsset(program.ID.String(), program.ProgramURL)
-		dbAsset.Source = "primary" // Mark as primary asset
-		primaryAssets = append(primaryAssets, dbAsset)
+		// Only save domain and wildcard type assets as primary assets
+		if scopeAsset.Type == "url" || scopeAsset.Type == "wildcard" {
+			dbAsset := scopeAsset.ConvertToDatabaseAsset(program.ID.String(), program.ProgramURL)
+			dbAsset.Source = "primary" // Mark as primary asset
+			primaryAssets = append(primaryAssets, dbAsset)
+		} else {
+			logrus.Debugf("Skipping non-domain asset type '%s' for program %s: %s", scopeAsset.Type, program.Name, scopeAsset.URL)
+		}
 	}
 
 	// Save primary assets to database
@@ -304,12 +318,14 @@ func (s *MonitorService) discoverProgramAssets(ctx context.Context, program *dat
 			scan.Error = err.Error()
 			return fmt.Errorf("failed to save primary assets: %w", err)
 		}
-		logrus.Infof("Saved %d primary assets for program %s", len(primaryAssets), program.Name)
+		logrus.Infof("Saved %d primary assets for program %s (filtered from %d total scope assets)", len(primaryAssets), program.Name, len(scopeAssets))
+	} else {
+		logrus.Infof("No primary assets to save for program %s (filtered from %d total scope assets)", program.Name, len(scopeAssets))
 	}
 
 	// Extract unique domains for ChaosDB discovery
 	domains := s.extractUniqueDomains(scopeAssets)
-	logrus.Infof("Extracted %d unique domains for ChaosDB discovery", len(domains))
+	logrus.Infof("Extracted %d unique domains for ChaosDB discovery: %v", len(domains), domains)
 
 	// Discover additional subdomains using ChaosDB (secondary assets)
 	if len(domains) > 0 {
@@ -339,7 +355,7 @@ func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid
 		return nil, nil
 	}
 
-	logrus.Infof("Starting ChaosDB discovery for %d domains", len(domains))
+	logrus.Infof("Starting ChaosDB discovery for %d domains: %v", len(domains), domains)
 
 	// Use bulk discovery for efficiency
 	bulkResult, err := s.chaosDBClient.DiscoverDomainsBulk(ctx, domains)
@@ -395,12 +411,17 @@ func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid
 	return assets, nil
 }
 
-// extractUniqueDomains extracts unique domains from scope assets
+// extractUniqueDomains extracts unique domains from scope assets (only domain and wildcard types)
 func (s *MonitorService) extractUniqueDomains(scopeAssets []*platforms.ScopeAsset) []string {
 	domainMap := make(map[string]bool)
 	var domains []string
 
 	for _, asset := range scopeAssets {
+		// Only process domain and wildcard type assets for ChaosDB discovery
+		if asset.Type != "url" && asset.Type != "wildcard" {
+			continue
+		}
+
 		domain, err := s.urlProcessor.ExtractDomain(asset.URL)
 		if err != nil {
 			logrus.Warnf("Failed to extract domain from %s: %v", asset.URL, err)
