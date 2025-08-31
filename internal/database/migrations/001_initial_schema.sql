@@ -22,13 +22,30 @@ CREATE TABLE IF NOT EXISTS programs (
     last_updated TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-    UNIQUE(platform, url)
+    UNIQUE(platform, program_url)
 );
+
+-- Fix schema if it was created with the old constraint
+DO $$
+BEGIN
+    -- Drop the old unique constraint if it exists
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'programs_platform_url_key') THEN
+        ALTER TABLE programs DROP CONSTRAINT programs_platform_url_key;
+        RAISE NOTICE 'Dropped old constraint programs_platform_url_key';
+    END IF;
+    
+    -- Add the correct unique constraint if it doesn't exist
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'programs_platform_program_url_key') THEN
+        ALTER TABLE programs ADD CONSTRAINT programs_platform_program_url_key UNIQUE (platform, program_url);
+        RAISE NOTICE 'Added new constraint programs_platform_program_url_key';
+    END IF;
+END $$;
 
 -- Create assets table
 CREATE TABLE IF NOT EXISTS assets (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     program_id UUID NOT NULL REFERENCES programs(id) ON DELETE CASCADE,
+    program_url VARCHAR(500),
     url VARCHAR(500) NOT NULL,
     domain VARCHAR(255) NOT NULL,
     subdomain VARCHAR(255),
@@ -39,6 +56,32 @@ CREATE TABLE IF NOT EXISTS assets (
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     UNIQUE(program_id, url)
 );
+
+-- Fix assets table schema if program_url column doesn't exist
+DO $$
+BEGIN
+    -- Add program_url column if it doesn't exist
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'assets' AND column_name = 'program_url') THEN
+        ALTER TABLE assets ADD COLUMN program_url VARCHAR(500);
+        RAISE NOTICE 'Added program_url column to assets table';
+    END IF;
+    
+    -- Update existing assets to have program_url from their associated program
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'assets' AND column_name = 'program_url') THEN
+        UPDATE assets 
+        SET program_url = programs.program_url 
+        FROM programs 
+        WHERE assets.program_id = programs.id 
+        AND assets.program_url IS NULL;
+        RAISE NOTICE 'Updated existing assets with program_url';
+    END IF;
+    
+    -- Make program_url NOT NULL after populating existing data
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'assets' AND column_name = 'program_url') THEN
+        ALTER TABLE assets ALTER COLUMN program_url SET NOT NULL;
+        RAISE NOTICE 'Made program_url NOT NULL';
+    END IF;
+END $$;
 
 -- Create asset_responses table
 CREATE TABLE IF NOT EXISTS asset_responses (
@@ -93,6 +136,10 @@ BEGIN
     
     IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_assets_source') THEN
         CREATE INDEX idx_assets_source ON assets(source);
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_assets_program_url') THEN
+        CREATE INDEX idx_assets_program_url ON assets(program_url);
     END IF;
     
     IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_assets_created_at') THEN
