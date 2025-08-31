@@ -155,7 +155,7 @@ Monitor Agent
 #### HTTPX Probe Configuration
 - `HTTPX_ENABLED`: Enable HTTPX probe for filtering ChaosDB results (default: true)
 - `HTTPX_TIMEOUT`: HTTPX probe timeout (default: 30s)
-- `HTTPX_CONCURRENCY`: Number of concurrent HTTPX probes (default: 10)
+- `HTTPX_CONCURRENCY`: Number of concurrent HTTPX probes (default: 25)
 - `HTTPX_RATE_LIMIT`: HTTPX probe rate limit (default: 100)
 - `HTTPX_FOLLOW_REDIRECTS`: Follow HTTP redirects (default: true)
 - `HTTPX_MAX_REDIRECTS`: Maximum number of redirects to follow (default: 3)

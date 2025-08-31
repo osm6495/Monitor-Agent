@@ -20,8 +20,8 @@ func TestNewClient(t *testing.T) {
 			config: nil,
 			want: &Client{
 				config: &ProbeConfig{
-					Timeout:         30 * time.Second,
-					Concurrency:     10,
+					Timeout:         15 * time.Second,
+					Concurrency:     25,
 					RateLimit:       100,
 					UserAgent:       "Monitor-Agent/1.0",
 					FollowRedirects: true,
@@ -33,7 +33,7 @@ func TestNewClient(t *testing.T) {
 			name: "custom config",
 			config: &ProbeConfig{
 				Timeout:         60 * time.Second,
-				Concurrency:     20,
+				Concurrency:     35,
 				RateLimit:       200,
 				UserAgent:       "Custom/1.0",
 				FollowRedirects: false,
@@ -42,7 +42,7 @@ func TestNewClient(t *testing.T) {
 			want: &Client{
 				config: &ProbeConfig{
 					Timeout:         60 * time.Second,
-					Concurrency:     20,
+					Concurrency:     35,
 					RateLimit:       200,
 					UserAgent:       "Custom/1.0",
 					FollowRedirects: false,

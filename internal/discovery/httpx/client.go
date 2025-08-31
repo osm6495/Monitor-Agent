@@ -37,8 +37,8 @@ type Client struct {
 func NewClient(config *ProbeConfig) *Client {
 	if config == nil {
 		config = &ProbeConfig{
-			Timeout:         30 * time.Second,
-			Concurrency:     10,
+			Timeout:         15 * time.Second,
+			Concurrency:     25,
 			RateLimit:       100,
 			UserAgent:       "Monitor-Agent/1.0",
 			FollowRedirects: true,

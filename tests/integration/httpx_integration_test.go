@@ -20,7 +20,7 @@ func TestHTTPXIntegrationWithChaosDB(t *testing.T) {
 	// Test that HTTPX client can be created with the configuration
 	httpxClient := httpx.NewClient(&httpx.ProbeConfig{
 		Timeout:         10 * time.Second,
-		Concurrency:     5,
+		Concurrency:     20,
 		RateLimit:       50,
 		FollowRedirects: true,
 		MaxRedirects:    3,
@@ -213,7 +213,7 @@ func TestHTTPXConfigurationValidation(t *testing.T) {
 				cfg.Discovery.HTTPX = config.HTTPXConfig{
 					Enabled:         true,
 					Timeout:         30 * time.Second,
-					Concurrency:     10,
+					Concurrency:     25,
 					RateLimit:       100,
 					FollowRedirects: true,
 					MaxRedirects:    3,
@@ -229,7 +229,7 @@ func TestHTTPXConfigurationValidation(t *testing.T) {
 				cfg.Discovery.HTTPX = config.HTTPXConfig{
 					Enabled:         true,
 					Timeout:         0, // Invalid
-					Concurrency:     10,
+					Concurrency:     25,
 					RateLimit:       100,
 					FollowRedirects: true,
 					MaxRedirects:    3,
@@ -263,7 +263,7 @@ func TestHTTPXConfigurationValidation(t *testing.T) {
 				cfg.Discovery.HTTPX = config.HTTPXConfig{
 					Enabled:         true,
 					Timeout:         30 * time.Second,
-					Concurrency:     10,
+					Concurrency:     25,
 					RateLimit:       0, // Invalid
 					FollowRedirects: true,
 					MaxRedirects:    3,
@@ -280,7 +280,7 @@ func TestHTTPXConfigurationValidation(t *testing.T) {
 				cfg.Discovery.HTTPX = config.HTTPXConfig{
 					Enabled:         true,
 					Timeout:         30 * time.Second,
-					Concurrency:     10,
+					Concurrency:     25,
 					RateLimit:       100,
 					FollowRedirects: true,
 					MaxRedirects:    15, // Invalid (> 10)
