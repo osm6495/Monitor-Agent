@@ -2,7 +2,6 @@ package hackerone
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -43,19 +42,11 @@ func NewHackerOneClient(config *PlatformConfig) *Client {
 
 	// Add authentication
 	if config.APIKey != "" && config.Username != "" {
-		// Try to decode the API key if it's base64 encoded
-		decodedKey := config.APIKey
-		if decoded, err := base64.StdEncoding.DecodeString(config.APIKey); err == nil {
-			decodedKey = string(decoded)
-		}
-		client.SetBasicAuth(config.Username, decodedKey)
+		// Use the API key as-is (it appears to already be in the correct format)
+		client.SetBasicAuth(config.Username, config.APIKey)
 	} else if config.APIKey != "" {
 		// Fallback for backward compatibility - try with empty username
-		decodedKey := config.APIKey
-		if decoded, err := base64.StdEncoding.DecodeString(config.APIKey); err == nil {
-			decodedKey = string(decoded)
-		}
-		client.SetBasicAuth("", decodedKey)
+		client.SetBasicAuth("", config.APIKey)
 	}
 
 	return &Client{
@@ -76,7 +67,7 @@ func (c *Client) IsHealthy(ctx context.Context) error {
 
 	resp, err := c.httpClient.R().
 		SetContext(ctx).
-		Get(fmt.Sprintf("%s/programs", baseURL))
+		Get(fmt.Sprintf("%s/hackers/programs", baseURL))
 
 	if err != nil {
 		return fmt.Errorf("failed to check HackerOne API health: %w", err)
@@ -120,12 +111,13 @@ func (c *Client) getProgramsPage(ctx context.Context, page, pageSize int) ([]*Pr
 	params := url.Values{}
 	params.Set("page[number]", fmt.Sprintf("%d", page))
 	params.Set("page[size]", fmt.Sprintf("%d", pageSize))
-	params.Set("filter[state]", "public")
-	params.Set("filter[offers_bounties]", "true")
+	// Remove filters to see what we get
+	// params.Set("filter[state]", "public")
+	// params.Set("filter[offers_bounties]", "true")
 
 	resp, err := c.httpClient.R().
 		SetContext(ctx).
-		Get(fmt.Sprintf("%s/programs?%s", baseURL, params.Encode()))
+		Get(fmt.Sprintf("%s/hackers/programs?%s", baseURL, params.Encode()))
 
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to make request: %w", err)
@@ -139,20 +131,32 @@ func (c *Client) getProgramsPage(ctx context.Context, page, pageSize int) ([]*Pr
 		return nil, false, fmt.Errorf("HackerOne API returned status %d", resp.StatusCode())
 	}
 
+	// Debug: Log response body
+	logrus.Debugf("HackerOne API response body: %s", string(resp.Body()))
+
 	var apiResp HackerOneResponse
 	if err := json.Unmarshal(resp.Body(), &apiResp); err != nil {
 		return nil, false, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
+	// Debug logging
+	logrus.Debugf("HackerOne API response: %d programs in data", len(apiResp.Data))
+	if len(apiResp.Data) > 0 {
+		logrus.Debugf("First program: %+v", apiResp.Data[0])
+	}
+
 	var programs []*Program
 	for _, program := range apiResp.Data {
-		// Only include programs that are public and offer bounties
-		if program.Attributes.State == "public" && program.Attributes.OffersBounties {
+		// Include programs that are in public mode and offer bounties
+		if program.Attributes.State == "public_mode" && program.Attributes.OffersBounties {
+			// Construct the program URL using the handle
+			programURL := fmt.Sprintf("https://hackerone.com/%s", program.Attributes.Handle)
+
 			platformProgram := &Program{
 				Name:        program.Attributes.Name,
 				Platform:    "hackerone",
 				URL:         program.Attributes.Website,
-				ProgramURL:  program.Links.Web,
+				ProgramURL:  programURL,
 				IsActive:    true,
 				LastUpdated: program.Attributes.UpdatedAt,
 			}
@@ -174,14 +178,19 @@ func (c *Client) GetProgramScope(ctx context.Context, programURL string) ([]*Sco
 		return nil, fmt.Errorf("failed to extract handle from URL: %w", err)
 	}
 
+	logrus.Debugf("Extracted handle '%s' from URL '%s'", handle, programURL)
+
 	c.rateLimiter.Wait()
 
 	params := url.Values{}
 	params.Set("page[size]", "100")
 
+	scopeURL := fmt.Sprintf("%s/hackers/programs/%s/structured_scopes?%s", baseURL, handle, params.Encode())
+	logrus.Debugf("Making scope request to: %s", scopeURL)
+
 	resp, err := c.httpClient.R().
 		SetContext(ctx).
-		Get(fmt.Sprintf("%s/programs/%s/structured_scopes?%s", baseURL, handle, params.Encode()))
+		Get(scopeURL)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to make request: %w", err)

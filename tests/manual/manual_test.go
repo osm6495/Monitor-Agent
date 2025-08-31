@@ -4,9 +4,12 @@ package manual
 
 import (
 	"context"
+	"fmt"
+	"net/url"
 	"testing"
 	"time"
 
+	"github.com/go-resty/resty/v2"
 	"github.com/monitor-agent/internal/config"
 	"github.com/monitor-agent/internal/discovery/chaosdb"
 	"github.com/monitor-agent/internal/platforms"
@@ -46,6 +49,28 @@ func TestHackerOneAPI(t *testing.T) {
 	// Test health check
 	err = platform.IsHealthy(ctx)
 	assert.NoError(t, err)
+
+	// Debug: Let's also test the API directly to see what we get
+	fmt.Println("=== DEBUG: Testing API directly ===")
+	client := resty.New()
+	client.SetBasicAuth("aghost", "XbJ6XgTKBIJv6TO+YHIwXOqeQccRmJ+/9fmLBg8/UmU=")
+	client.SetHeaders(map[string]string{
+		"Accept":       "application/json",
+		"Content-Type": "application/json",
+		"User-Agent":   "Monitor-Agent/1.0",
+	})
+
+	params := url.Values{}
+	params.Set("page[number]", "1")
+	params.Set("page[size]", "10")
+
+	resp, err := client.R().Get(fmt.Sprintf("https://api.hackerone.com/v1/hackers/programs?%s", params.Encode()))
+	assert.NoError(t, err)
+	assert.Equal(t, 200, resp.StatusCode())
+
+	fmt.Printf("Direct API Response Status: %d\n", resp.StatusCode())
+	fmt.Printf("Direct API Response Body: %s\n", string(resp.Body()))
+	fmt.Println("=== END DEBUG ===")
 
 	// Test getting public programs
 	programs, err := platform.GetPublicPrograms(ctx)
@@ -210,8 +235,8 @@ func TestURLProcessing(t *testing.T) {
 	assert.Equal(t, "subdomain", subdomain)
 
 	// Test wildcard conversion
-	domain := urlProcessor.ConvertWildcardToDomain("*.example.com")
-	assert.Equal(t, "example.com", domain)
+	wildcardDomain := urlProcessor.ConvertWildcardToDomain("*.example.com")
+	assert.Equal(t, "example.com", wildcardDomain)
 
 	// Test URL normalization
 	normalized, err := urlProcessor.NormalizeURL("http://example.com:80/path/")
