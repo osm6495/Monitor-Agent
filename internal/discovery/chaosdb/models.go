@@ -12,17 +12,6 @@ type ChaosDBResponse struct {
 	Error      string   `json:"error,omitempty"`
 }
 
-// ChaosDBBulkRequest represents a bulk request to ChaosDB
-type ChaosDBBulkRequest struct {
-	Domains []string `json:"domains"`
-}
-
-// ChaosDBBulkResponse represents a bulk response from ChaosDB
-type ChaosDBBulkResponse struct {
-	Results []ChaosDBResponse `json:"results"`
-	Errors  []string          `json:"errors,omitempty"`
-}
-
 // ChaosDBError represents a ChaosDB API error
 type ChaosDBError struct {
 	Error   string `json:"error"`

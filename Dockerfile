@@ -51,8 +51,7 @@ EXPOSE 8080
 ENV GO_ENV=production
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD ./monitor-agent health || exit 1
+HEALTHCHECK NONE
 
 # Default command
 ENTRYPOINT ["./monitor-agent"]

@@ -73,11 +73,25 @@ func (c *Client) DiscoverDomain(ctx context.Context, domain string) (*DiscoveryR
 
 	resp, err := c.httpClient.R().
 		SetContext(ctx).
-		SetQueryParam("domain", cleanDomain).
-		Get(baseURL)
+		Get(fmt.Sprintf("%s/%s/subdomains", baseURL, cleanDomain))
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to make request for domain %s: %w", cleanDomain, err)
+	}
+
+	if resp.StatusCode() == http.StatusNotFound {
+		// Domain not found in ChaosDB, return empty result
+		logrus.Debugf("Domain %s not found in ChaosDB", cleanDomain)
+		return &DiscoveryResult{
+			Domain:       cleanDomain,
+			Subdomains:   []string{},
+			Count:        0,
+			DiscoveredAt: time.Now(),
+		}, nil
+	}
+
+	if resp.StatusCode() == http.StatusUnauthorized {
+		return nil, fmt.Errorf("ChaosDB API unauthorized - please check your API key for domain %s", cleanDomain)
 	}
 
 	if resp.StatusCode() != http.StatusOK {
@@ -115,8 +129,7 @@ func (c *Client) DiscoverDomain(ctx context.Context, domain string) (*DiscoveryR
 	return result, nil
 }
 
-// DiscoverDomainsBulk discovers subdomains for multiple domains in bulk
-// This uses the bulk endpoint for efficiency when available
+// DiscoverDomainsBulk discovers subdomains for multiple domains using concurrent requests
 func (c *Client) DiscoverDomainsBulk(ctx context.Context, domains []string) (*BulkDiscoveryResult, error) {
 	if len(domains) == 0 {
 		return &BulkDiscoveryResult{
@@ -148,87 +161,8 @@ func (c *Client) DiscoverDomainsBulk(ctx context.Context, domains []string) (*Bu
 		}, nil
 	}
 
-	// Try bulk endpoint first, fallback to concurrent if not available
-	bulkResult, err := c.tryBulkEndpoint(ctx, cleanDomains)
-	if err != nil {
-		logrus.Warnf("Bulk endpoint failed, falling back to concurrent requests: %v", err)
-		return c.DiscoverDomainsConcurrent(ctx, cleanDomains, 10)
-	}
-
-	return bulkResult, nil
-}
-
-// tryBulkEndpoint attempts to use the bulk endpoint for efficiency
-func (c *Client) tryBulkEndpoint(ctx context.Context, domains []string) (*BulkDiscoveryResult, error) {
-	c.rateLimiter.Wait()
-
-	// Prepare bulk request
-	bulkRequest := ChaosDBBulkRequest{
-		Domains: domains,
-	}
-
-	resp, err := c.httpClient.R().
-		SetContext(ctx).
-		SetBody(bulkRequest).
-		Post(baseURL + "/bulk")
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to make bulk request: %w", err)
-	}
-
-	if resp.StatusCode() != http.StatusOK {
-		var errorResp ChaosDBError
-		if err := json.Unmarshal(resp.Body(), &errorResp); err == nil {
-			return nil, fmt.Errorf("ChaosDB API error: %s", errorResp.Message)
-		}
-		return nil, fmt.Errorf("ChaosDB API returned status %d", resp.StatusCode())
-	}
-
-	var bulkResp ChaosDBBulkResponse
-	if err := json.Unmarshal(resp.Body(), &bulkResp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal bulk response: %w", err)
-	}
-
-	// Convert to discovery results
-	var results []DiscoveryResult
-	totalCount := 0
-	errorCount := 0
-
-	for _, chaosResp := range bulkResp.Results {
-		result := DiscoveryResult{
-			Domain:       chaosResp.Domain,
-			Subdomains:   chaosResp.Subdomains,
-			Count:        chaosResp.Count,
-			DiscoveredAt: time.Now(),
-		}
-
-		if chaosResp.Error != "" {
-			result.Error = chaosResp.Error
-			errorCount++
-		} else {
-			totalCount += chaosResp.Count
-		}
-
-		results = append(results, result)
-	}
-
-	// Add errors from bulk response
-	for _, errorMsg := range bulkResp.Errors {
-		errorCount++
-		logrus.Warnf("ChaosDB bulk error: %s", errorMsg)
-	}
-
-	bulkResult := &BulkDiscoveryResult{
-		Results:      results,
-		TotalCount:   totalCount,
-		ErrorCount:   errorCount,
-		DiscoveredAt: time.Now(),
-	}
-
-	logrus.Infof("Bulk discovery completed: %d domains, %d total subdomains, %d errors",
-		len(results), totalCount, errorCount)
-
-	return bulkResult, nil
+	// Use concurrent requests since there's no bulk endpoint
+	return c.DiscoverDomainsConcurrent(ctx, cleanDomains, 10)
 }
 
 // DiscoverDomainsConcurrent discovers subdomains for multiple domains concurrently
