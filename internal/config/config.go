@@ -80,6 +80,7 @@ type HTTPConfig struct {
 type DiscoveryConfig struct {
 	BulkSize int
 	HTTPX    HTTPXConfig
+	Timeouts TimeoutConfig
 }
 
 // HTTPXConfig holds HTTPX probe configuration
@@ -90,6 +91,12 @@ type HTTPXConfig struct {
 	RateLimit       int
 	FollowRedirects bool
 	MaxRedirects    int
+}
+
+// TimeoutConfig holds program-level timeouts
+type TimeoutConfig struct {
+	ProgramProcess time.Duration
+	ChaosDiscovery time.Duration
 }
 
 // Load loads configuration from environment variables
@@ -235,6 +242,16 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid HTTPX_MAX_REDIRECTS: %w", err)
 	}
 
+	programProcessTimeout, err := time.ParseDuration(getEnv("PROGRAM_PROCESS_TIMEOUT", "45m"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid PROGRAM_PROCESS_TIMEOUT: %w", err)
+	}
+
+	chaosDiscoveryTimeout, err := time.ParseDuration(getEnv("CHAOS_DISCOVERY_TIMEOUT", "30m"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid CHAOS_DISCOVERY_TIMEOUT: %w", err)
+	}
+
 	config.Discovery = DiscoveryConfig{
 		BulkSize: bulkSize,
 		HTTPX: HTTPXConfig{
@@ -244,6 +261,10 @@ func Load() (*Config, error) {
 			RateLimit:       httpxRateLimit,
 			FollowRedirects: httpxFollowRedirects,
 			MaxRedirects:    httpxMaxRedirects,
+		},
+		Timeouts: TimeoutConfig{
+			ProgramProcess: programProcessTimeout,
+			ChaosDiscovery: chaosDiscoveryTimeout,
 		},
 	}
 
@@ -457,6 +478,14 @@ func (c *Config) validateDiscovery() error {
 		if c.Discovery.HTTPX.MaxRedirects < 0 || c.Discovery.HTTPX.MaxRedirects > 10 {
 			return fmt.Errorf("HTTPX_MAX_REDIRECTS must be between 0 and 10")
 		}
+	}
+
+	// Validate timeouts
+	if c.Discovery.Timeouts.ProgramProcess <= 0 {
+		return fmt.Errorf("PROGRAM_PROCESS_TIMEOUT must be greater than 0")
+	}
+	if c.Discovery.Timeouts.ChaosDiscovery <= 0 {
+		return fmt.Errorf("CHAOS_DISCOVERY_TIMEOUT must be greater than 0")
 	}
 
 	return nil

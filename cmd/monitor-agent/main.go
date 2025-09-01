@@ -101,12 +101,10 @@ func main() {
 	logrus.Info("No command specified, running scan...")
 
 	// Run scan in a goroutine so we can handle shutdown signals
+	// Note: No overall process timeout - the scan will run until completion
+	// Individual operations have timeouts to prevent hanging
 	scanDone := make(chan error, 1)
 	go func() {
-		// No overall process timeout - let the scan run as long as needed
-		// Individual HTTPX probes will timeout after 15 seconds per URL
-		// This allows the process to continue through all bug bounty programs
-		// even if some HTTPX probes take longer than expected
 		scanDone <- runScan(context.Background(), monitorService)
 	}()
 
@@ -261,6 +259,11 @@ Environment Variables:
   DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD (required)
   HACKERONE_USERNAME, HACKERONE_API_KEY, BUGCROWD_API_KEY, CHAOSDB_API_KEY (optional)
   LOG_LEVEL, ENVIRONMENT
+  
+  Timeout Configuration (optional):
+  PROGRAM_PROCESS_TIMEOUT - Individual program processing timeout (default: 45m)
+  CHAOS_DISCOVERY_TIMEOUT - ChaosDB discovery timeout (default: 30m)
+  HTTPX_TIMEOUT           - HTTPX probe per-URL timeout (default: 15s)
 
 Examples:
   monitor-agent          # Run a scan (default)

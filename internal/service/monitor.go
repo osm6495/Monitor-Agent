@@ -110,6 +110,11 @@ func NewMonitorService(cfg *config.Config, db *sqlx.DB) *MonitorService {
 	}
 }
 
+// GetConfig returns the service configuration
+func (s *MonitorService) GetConfig() *config.Config {
+	return s.config
+}
+
 // RunFullScan performs a complete scan of all platforms
 func (s *MonitorService) RunFullScan(ctx context.Context) error {
 	logrus.Info("Starting full scan of all bug bounty platforms")
@@ -121,20 +126,29 @@ func (s *MonitorService) RunFullScan(ctx context.Context) error {
 		return fmt.Errorf("no platforms configured with API keys")
 	}
 
+	logrus.Infof("Starting scan of %d platforms", len(platformList))
+
 	var wg sync.WaitGroup
 	errors := make(chan error, len(platformList))
 
 	// Scan each platform concurrently
-	for _, platform := range platformList {
+	for i, platform := range platformList {
 		wg.Add(1)
-		go func(p platforms.Platform) {
+		go func(p platforms.Platform, platformIndex int) {
 			defer wg.Done()
+			logrus.Infof("Starting scan of platform %d/%d: %s", platformIndex+1, len(platformList), p.GetName())
+
+			startTime := time.Now()
 			if err := s.scanPlatform(ctx, p); err != nil {
+				logrus.Errorf("Platform %s scan failed after %v: %v", p.GetName(), time.Since(startTime), err)
 				errors <- fmt.Errorf("failed to scan platform %s: %w", p.GetName(), err)
+			} else {
+				logrus.Infof("Platform %s scan completed successfully in %v", p.GetName(), time.Since(startTime))
 			}
-		}(platform)
+		}(platform, i)
 	}
 
+	logrus.Info("Waiting for all platform scans to complete...")
 	wg.Wait()
 	close(errors)
 
@@ -373,10 +387,16 @@ func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid
 		return nil, nil
 	}
 
+	// Create a timeout context for ChaosDB discovery and HTTPX probing
+	// This prevents the discovery process from hanging indefinitely
+	discoveryTimeout := s.config.Discovery.Timeouts.ChaosDiscovery
+	discoveryCtx, cancel := context.WithTimeout(ctx, discoveryTimeout)
+	defer cancel()
+
 	logrus.Infof("Starting ChaosDB discovery for %d domains: %v", len(domains), domains)
 
 	// Use bulk discovery for efficiency
-	bulkResult, err := s.chaosDBClient.DiscoverDomainsBulk(ctx, domains)
+	bulkResult, err := s.chaosDBClient.DiscoverDomainsBulk(discoveryCtx, domains)
 	if err != nil {
 		return nil, fmt.Errorf("ChaosDB bulk discovery failed: %w", err)
 	}
@@ -398,13 +418,18 @@ func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid
 	var filteredSubdomains []string
 	if s.httpxClient != nil && len(allSubdomains) > 0 {
 		logrus.Infof("Starting HTTPX probe to filter %d subdomains", len(allSubdomains))
+		logrus.Debugf("HTTPX probe timeout set to %v", discoveryTimeout)
 
-		filteredSubdomains, err = s.httpxClient.FilterExistingDomains(ctx, allSubdomains)
+		// Start HTTPX probe with progress logging
+		probeStart := time.Now()
+		filteredSubdomains, err = s.httpxClient.FilterExistingDomains(discoveryCtx, allSubdomains)
+		probeDuration := time.Since(probeStart)
+
 		if err != nil {
-			logrus.Warnf("HTTPX probe failed, using all subdomains: %v", err)
+			logrus.Warnf("HTTPX probe failed after %v, using all subdomains: %v", probeDuration, err)
 			filteredSubdomains = allSubdomains
 		} else {
-			logrus.Infof("HTTPX probe completed: %d/%d subdomains exist", len(filteredSubdomains), len(allSubdomains))
+			logrus.Infof("HTTPX probe completed in %v: %d/%d subdomains exist", probeDuration, len(filteredSubdomains), len(allSubdomains))
 		}
 	} else {
 		logrus.Info("HTTPX probe not configured or no subdomains to probe, using all subdomains")
