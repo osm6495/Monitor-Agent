@@ -196,6 +196,10 @@ func TestHTTPXConfigurationValidation(t *testing.T) {
 			},
 			Discovery: config.DiscoveryConfig{
 				BulkSize: 100,
+				Timeouts: config.TimeoutConfig{
+					ProgramProcess: 45 * time.Minute,
+					ChaosDiscovery: 30 * time.Minute,
+				},
 			},
 		}
 	}
@@ -217,6 +221,7 @@ func TestHTTPXConfigurationValidation(t *testing.T) {
 					RateLimit:       100,
 					FollowRedirects: true,
 					MaxRedirects:    3,
+					Debug:           false,
 				}
 				return cfg
 			}(),
@@ -233,6 +238,7 @@ func TestHTTPXConfigurationValidation(t *testing.T) {
 					RateLimit:       100,
 					FollowRedirects: true,
 					MaxRedirects:    3,
+					Debug:           false,
 				}
 				return cfg
 			}(),
@@ -250,6 +256,7 @@ func TestHTTPXConfigurationValidation(t *testing.T) {
 					RateLimit:       100,
 					FollowRedirects: true,
 					MaxRedirects:    3,
+					Debug:           false,
 				}
 				return cfg
 			}(),
@@ -267,6 +274,7 @@ func TestHTTPXConfigurationValidation(t *testing.T) {
 					RateLimit:       0, // Invalid
 					FollowRedirects: true,
 					MaxRedirects:    3,
+					Debug:           false,
 				}
 				return cfg
 			}(),
@@ -284,6 +292,7 @@ func TestHTTPXConfigurationValidation(t *testing.T) {
 					RateLimit:       100,
 					FollowRedirects: true,
 					MaxRedirects:    15, // Invalid (> 10)
+					Debug:           false,
 				}
 				return cfg
 			}(),

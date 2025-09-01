@@ -92,6 +92,7 @@ func NewMonitorService(cfg *config.Config, db *sqlx.DB) *MonitorService {
 			RateLimit:       cfg.Discovery.HTTPX.RateLimit,
 			FollowRedirects: cfg.Discovery.HTTPX.FollowRedirects,
 			MaxRedirects:    cfg.Discovery.HTTPX.MaxRedirects,
+			Debug:           cfg.Discovery.HTTPX.Debug,
 		})
 		logrus.Info("HTTPX probe client configured")
 	} else {

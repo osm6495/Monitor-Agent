@@ -91,6 +91,7 @@ type HTTPXConfig struct {
 	RateLimit       int
 	FollowRedirects bool
 	MaxRedirects    int
+	Debug           bool // Enable debug logging for HTTPX probes
 }
 
 // TimeoutConfig holds program-level timeouts
@@ -242,6 +243,8 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid HTTPX_MAX_REDIRECTS: %w", err)
 	}
 
+	httpxDebug := getEnv("HTTPX_DEBUG", "false") == "true"
+
 	programProcessTimeout, err := time.ParseDuration(getEnv("PROGRAM_PROCESS_TIMEOUT", "45m"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid PROGRAM_PROCESS_TIMEOUT: %w", err)
@@ -261,6 +264,7 @@ func Load() (*Config, error) {
 			RateLimit:       httpxRateLimit,
 			FollowRedirects: httpxFollowRedirects,
 			MaxRedirects:    httpxMaxRedirects,
+			Debug:           httpxDebug,
 		},
 		Timeouts: TimeoutConfig{
 			ProgramProcess: programProcessTimeout,

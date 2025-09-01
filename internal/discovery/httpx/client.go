@@ -26,6 +26,7 @@ type ProbeConfig struct {
 	UserAgent       string
 	FollowRedirects bool
 	MaxRedirects    int
+	Debug           bool
 }
 
 // Client represents an HTTPX probe client
@@ -43,6 +44,7 @@ func NewClient(config *ProbeConfig) *Client {
 			UserAgent:       "Monitor-Agent/1.0",
 			FollowRedirects: true,
 			MaxRedirects:    3,
+			Debug:           false,
 		}
 	}
 
@@ -85,15 +87,13 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 		return []ProbeResult{}, nil
 	}
 
-	// Create results channel
+	// Create results channel with buffer
 	results := make(chan ProbeResult, len(urls))
 
 	// Create a done channel to signal when HTTPX is finished
 	done := make(chan struct{})
 
 	// Create HTTPX runner options
-	// Note: Timeout is per-URL timeout, not total process timeout
-	// Each URL will timeout after the specified duration if it doesn't respond
 	options := &runner.Options{
 		InputTargetHost: urls,
 		RateLimit:       c.config.RateLimit,
@@ -105,8 +105,8 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 		NoColor:         true,
 		JSONOutput:      false,
 		CSVOutput:       false,
-		Verbose:         false,
-		Debug:           false,
+		Verbose:         c.config.Debug, // Use debug config
+		Debug:           c.config.Debug,
 		OnResult: func(result runner.Result) {
 			probeResult := ProbeResult{
 				URL:    result.URL,
@@ -119,9 +119,19 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 				probeResult.Error = "Domain does not exist or is unreachable"
 			}
 
+			if c.config.Debug {
+				logrus.Debugf("HTTPX result: %s -> status: %d, exists: %v", result.URL, result.StatusCode, probeResult.Exists)
+			}
+
 			select {
 			case results <- probeResult:
+				if c.config.Debug {
+					logrus.Debugf("Result sent to channel: %s", result.URL)
+				}
 			case <-ctx.Done():
+				if c.config.Debug {
+					logrus.Debugf("Context cancelled while sending result: %s", result.URL)
+				}
 				return
 			}
 		},
@@ -140,11 +150,13 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 		httpxRunner.RunEnumeration()
 	}()
 
-	// Collect results with timeout protection
+	// Collect results with improved logic
 	var probeResults []ProbeResult
+	expectedResults := len(urls)
+	resultsCollected := 0
+	httpxFinished := false
 
-	// Calculate a reasonable timeout for the entire operation
-	// Use a multiple of the per-URL timeout plus some buffer for processing
+	// Calculate timeout for the entire operation
 	totalTimeout := time.Duration(len(urls)) * c.config.Timeout / time.Duration(c.config.Concurrency)
 	if totalTimeout < 30*time.Second {
 		totalTimeout = 30 * time.Second
@@ -159,19 +171,20 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 	timeoutCtx, cancel := context.WithTimeout(ctx, totalTimeout)
 	defer cancel()
 
-	// Collect results until we get all expected results or timeout
-	expectedResults := len(urls)
-	resultsCollected := 0
-
-	for resultsCollected < expectedResults {
+	// First phase: collect results while HTTPX is running
+	for resultsCollected < expectedResults && !httpxFinished {
 		select {
 		case result := <-results:
 			probeResults = append(probeResults, result)
 			resultsCollected++
+			if c.config.Debug {
+				logrus.Debugf("Collected result %d/%d: %s", resultsCollected, expectedResults, result.URL)
+			}
 		case <-done:
-			// HTTPX finished, break out of the loop
-			logrus.Debugf("HTTPX runner finished, collected %d/%d results", resultsCollected, expectedResults)
-			goto collectionComplete
+			// HTTPX finished, but continue collecting any remaining results
+			httpxFinished = true
+			logrus.Debugf("HTTPX runner finished, collected %d/%d results, continuing to collect remaining results", resultsCollected, expectedResults)
+			// Don't break here - continue collecting any results that might still be in the channel
 		case <-timeoutCtx.Done():
 			// Timeout reached, break out of the loop
 			logrus.Warnf("HTTPX probe timeout after %v, collected %d/%d results", totalTimeout, resultsCollected, expectedResults)
@@ -179,6 +192,30 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 		case <-ctx.Done():
 			// Parent context cancelled
 			return nil, ctx.Err()
+		}
+	}
+
+	// Second phase: if HTTPX finished but we haven't collected all results, try to collect remaining results
+	// This handles the case where HTTPX processes URLs faster than we can collect results
+	if httpxFinished && resultsCollected < expectedResults {
+		logrus.Debugf("HTTPX finished early, attempting to collect remaining %d results", expectedResults-resultsCollected)
+
+		// Try to collect remaining results with a short timeout
+		remainingTimeout := time.After(10 * time.Second)
+		for resultsCollected < expectedResults {
+			select {
+			case result := <-results:
+				probeResults = append(probeResults, result)
+				resultsCollected++
+				if c.config.Debug {
+					logrus.Debugf("Collected remaining result %d/%d: %s", resultsCollected, expectedResults, result.URL)
+				}
+			case <-remainingTimeout:
+				logrus.Warnf("Timeout collecting remaining results, collected %d/%d total", resultsCollected, expectedResults)
+				goto collectionComplete
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
 		}
 	}
 

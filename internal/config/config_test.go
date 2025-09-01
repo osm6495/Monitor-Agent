@@ -86,6 +86,10 @@ func TestLoad(t *testing.T) {
 						FollowRedirects: true,
 						MaxRedirects:    3,
 					},
+					Timeouts: TimeoutConfig{
+						ProgramProcess: 45 * time.Minute,
+						ChaosDiscovery: 30 * time.Minute,
+					},
 				},
 			},
 			wantErr: false,
@@ -205,6 +209,10 @@ func TestLoad(t *testing.T) {
 						FollowRedirects: true,
 						MaxRedirects:    3,
 					},
+					Timeouts: TimeoutConfig{
+						ProgramProcess: 45 * time.Minute,
+						ChaosDiscovery: 30 * time.Minute,
+					},
 				},
 			},
 			wantErr: false,
@@ -291,6 +299,10 @@ func TestConfig_Validate(t *testing.T) {
 						FollowRedirects: true,
 						MaxRedirects:    3,
 					},
+					Timeouts: TimeoutConfig{
+						ProgramProcess: 45 * time.Minute,
+						ChaosDiscovery: 30 * time.Minute,
+					},
 				},
 			},
 			wantErr: false,
@@ -336,6 +348,10 @@ func TestConfig_Validate(t *testing.T) {
 				},
 				Discovery: DiscoveryConfig{
 					BulkSize: 100,
+					Timeouts: TimeoutConfig{
+						ProgramProcess: 45 * time.Minute,
+						ChaosDiscovery: 30 * time.Minute,
+					},
 				},
 			},
 			wantErr: true,
@@ -381,6 +397,10 @@ func TestConfig_Validate(t *testing.T) {
 				},
 				Discovery: DiscoveryConfig{
 					BulkSize: 100,
+					Timeouts: TimeoutConfig{
+						ProgramProcess: 45 * time.Minute,
+						ChaosDiscovery: 30 * time.Minute,
+					},
 				},
 			},
 			wantErr: false,
@@ -426,6 +446,10 @@ func TestConfig_Validate(t *testing.T) {
 				},
 				Discovery: DiscoveryConfig{
 					BulkSize: 100,
+					Timeouts: TimeoutConfig{
+						ProgramProcess: 45 * time.Minute,
+						ChaosDiscovery: 30 * time.Minute,
+					},
 				},
 			},
 			wantErr: false,
@@ -471,6 +495,10 @@ func TestConfig_Validate(t *testing.T) {
 				},
 				Discovery: DiscoveryConfig{
 					BulkSize: 100,
+					Timeouts: TimeoutConfig{
+						ProgramProcess: 45 * time.Minute,
+						ChaosDiscovery: 30 * time.Minute,
+					},
 				},
 			},
 			wantErr: false,
