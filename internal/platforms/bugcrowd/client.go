@@ -210,19 +210,39 @@ func (c *Client) parseScopeAsset(target BugCrowdScope) *ScopeAsset {
 		return nil
 	}
 
+	// Normalize URL to ensure it has https:// protocol
+	normalizedURL, err := c.urlProcessor.NormalizeURL(targetStr)
+	if err != nil {
+		// If normalization fails, fallback to simple https:// addition
+		if !strings.HasPrefix(targetStr, "http://") && !strings.HasPrefix(targetStr, "https://") {
+			normalizedURL = "https://" + targetStr
+		} else {
+			normalizedURL = targetStr
+		}
+	}
+
 	// Handle different target types
 	switch target.Type {
 	case "website":
 		return &ScopeAsset{
-			URL:    targetStr,
-			Domain: c.extractDomain(targetStr),
+			URL:    normalizedURL,
+			Domain: c.extractDomain(normalizedURL),
 			Type:   "url",
 		}
 	case "wildcard":
 		// Convert wildcard to base domain for ChaosDB discovery
 		domain := c.urlProcessor.ConvertWildcardToDomain(targetStr)
+		normalizedDomain, err := c.urlProcessor.NormalizeURL(domain)
+		if err != nil {
+			// If normalization fails, fallback to simple https:// addition
+			if !strings.HasPrefix(domain, "http://") && !strings.HasPrefix(domain, "https://") {
+				normalizedDomain = "https://" + domain
+			} else {
+				normalizedDomain = domain
+			}
+		}
 		return &ScopeAsset{
-			URL:    domain,
+			URL:    normalizedDomain,
 			Domain: domain,
 			Type:   "wildcard",
 		}
@@ -234,8 +254,8 @@ func (c *Client) parseScopeAsset(target BugCrowdScope) *ScopeAsset {
 		}
 	default:
 		return &ScopeAsset{
-			URL:    targetStr,
-			Domain: targetStr,
+			URL:    normalizedURL,
+			Domain: c.extractDomain(normalizedURL),
 			Type:   target.Type,
 		}
 	}

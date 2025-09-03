@@ -226,7 +226,7 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid HTTPX_TIMEOUT: %w", err)
 	}
 
-	httpxConcurrency, err := strconv.Atoi(getEnv("HTTPX_CONCURRENCY", "25"))
+	httpxConcurrency, err := strconv.Atoi(getEnv("HTTPX_CONCURRENCY", "100"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid HTTPX_CONCURRENCY: %w", err)
 	}

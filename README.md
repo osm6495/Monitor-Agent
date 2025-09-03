@@ -155,7 +155,7 @@ Monitor Agent
 #### HTTPX Probe Configuration
 - `HTTPX_ENABLED`: Enable HTTPX probe for filtering ChaosDB results (default: true)
 - `HTTPX_TIMEOUT`: HTTPX probe timeout per domain (default: 15s)
-- `HTTPX_CONCURRENCY`: Number of concurrent HTTPX probes (default: 25)
+- `HTTPX_CONCURRENCY`: Number of concurrent HTTPX probes (default: 100)
 - `HTTPX_RATE_LIMIT`: HTTPX probe rate limit (default: 100)
 - `HTTPX_FOLLOW_REDIRECTS`: Follow HTTP redirects (default: true)
 - `HTTPX_MAX_REDIRECTS`: Maximum number of redirects to follow (default: 3)
@@ -235,11 +235,24 @@ Since this application performs one-off scans, you can schedule it using:
 - Rate limited to 60 requests per minute per IP
 - Supports API key authentication for higher limits
 - **HTTPX Probe Integration**: Automatically filters out non-existent domains using Project Discovery's HTTPX library
+  - **Per-Domain Processing**: Each domain is processed individually with immediate HTTPX probing
+  - **Immediate Database Storage**: Results are saved to database after each domain's processing
+  - **Sequential Processing**: Domains are processed one by one to respect ChaosDB rate limits
   - Configurable timeout, concurrency, and rate limiting
   - Follows redirects and handles various HTTP status codes
   - Only saves domains that actually exist and respond to HTTP requests
   - **Robust Timeout Handling**: 15-second per-domain timeout with graceful fallback
   - **Crash Prevention**: Comprehensive panic recovery and error handling
+
+## Processing Flow
+
+The application follows this optimized flow for asset discovery:
+
+1. **Program Discovery**: Fetch all public programs from configured platforms
+2. **Primary Asset Extraction**: Extract domain and wildcard assets from program scope
+3. **Per-Domain ChaosDB Discovery**: For each domain, discover subdomains using ChaosDB
+4. **Immediate HTTPX Probing**: Run concurrent HTTPX probes on each domain's subdomains immediately after discovery
+5. **Database Storage**: Save verified assets to database after each domain's processing
 
 ## Database Schema
 

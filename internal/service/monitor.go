@@ -458,10 +458,70 @@ func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid
 
 	logrus.Infof("Starting ChaosDB discovery for %d domains: %v", len(domains), domains)
 
+	// Process domains sequentially to respect ChaosDB rate limits
+	return s.processDomainsSequentially(discoveryCtx, programID, programURL, domains)
+}
+
+// processDomainsSequentially processes domains one by one to respect rate limits
+func (s *MonitorService) processDomainsSequentially(ctx context.Context, programID uuid.UUID, programURL string, domains []string) ([]*database.Asset, error) {
+	var allAssets []*database.Asset
+	totalSubdomains := 0
+	successfulDomains := 0
+	errorCount := 0
+
+	for i, domain := range domains {
+		logrus.Infof("Processing domain %d/%d: %s", i+1, len(domains), domain)
+
+		// Process single domain with HTTPX probe
+		domainAssets, err := s.processSingleDomain(ctx, programID, programURL, domain, i+1, len(domains))
+		if err != nil {
+			logrus.Warnf("Failed to process domain %s: %v", domain, err)
+			errorCount++
+			continue
+		}
+
+		allAssets = append(allAssets, domainAssets...)
+		totalSubdomains += len(domainAssets)
+		successfulDomains++
+
+		// Small delay between domains to respect rate limits
+		if i < len(domains)-1 {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+
+	logrus.Infof("ChaosDB discovery completed: %d domains, %d total subdomains, %d successful domains, %d errors",
+		len(domains), totalSubdomains, successfulDomains, errorCount)
+
+	return allAssets, nil
+}
+
+// processSingleDomain processes a single domain using ChaosDB and HTTPX probe
+func (s *MonitorService) processSingleDomain(ctx context.Context, programID uuid.UUID, programURL string, domain string, domainIndex int, totalDomains int) ([]*database.Asset, error) {
+	// Add panic recovery
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.Errorf("processSingleDomain panicked for domain %s: %v", domain, r)
+		}
+	}()
+
+	if s.chaosDBClient == nil {
+		logrus.Warnf("ChaosDB client not configured, skipping domain %s", domain)
+		return nil, nil
+	}
+
+	// Create a timeout context for ChaosDB discovery and HTTPX probing
+	// This prevents the discovery process from hanging indefinitely
+	discoveryTimeout := s.config.Discovery.Timeouts.ChaosDiscovery
+	domainCtx, cancel := context.WithTimeout(ctx, discoveryTimeout)
+	defer cancel()
+
+	logrus.Infof("Starting ChaosDB discovery for domain %d/%d: %s", domainIndex, totalDomains, domain)
+
 	// Use bulk discovery for efficiency
-	bulkResult, err := s.chaosDBClient.DiscoverDomainsBulk(discoveryCtx, domains)
+	bulkResult, err := s.chaosDBClient.DiscoverDomainsBulk(domainCtx, []string{domain})
 	if err != nil {
-		logrus.Warnf("ChaosDB bulk discovery failed: %v", err)
+		logrus.Warnf("ChaosDB bulk discovery failed for domain %s: %v", domain, err)
 		return nil, nil // Return empty result instead of error to continue processing
 	}
 
@@ -476,32 +536,32 @@ func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid
 		allSubdomains = append(allSubdomains, result.Subdomains...)
 	}
 
-	logrus.Infof("ChaosDB discovered %d total subdomains", len(allSubdomains))
+	logrus.Infof("ChaosDB discovered %d total subdomains for domain %s", len(allSubdomains), domain)
 
 	// Filter subdomains using HTTPX probe if enabled
 	var filteredSubdomains []string
 	if s.httpxClient != nil && len(allSubdomains) > 0 {
-		logrus.Infof("Starting HTTPX probe to filter %d subdomains", len(allSubdomains))
+		logrus.Infof("Starting HTTPX probe to filter %d subdomains for domain %s", len(allSubdomains), domain)
 		logrus.Debugf("HTTPX probe timeout set to %v", discoveryTimeout)
 
 		// Start HTTPX probe with progress logging
 		probeStart := time.Now()
 
 		// Use a separate context for HTTPX probe with its own timeout
-		httpxCtx, httpxCancel := context.WithTimeout(discoveryCtx, discoveryTimeout)
+		httpxCtx, httpxCancel := context.WithTimeout(domainCtx, discoveryTimeout)
 		filteredSubdomains, err = s.httpxClient.FilterExistingDomains(httpxCtx, allSubdomains)
 		httpxCancel()
 
 		probeDuration := time.Since(probeStart)
 
 		if err != nil {
-			logrus.Warnf("HTTPX probe failed after %v, using all subdomains: %v", probeDuration, err)
+			logrus.Warnf("HTTPX probe failed after %v for domain %s, using all subdomains: %v", probeDuration, domain, err)
 			filteredSubdomains = allSubdomains
 		} else {
-			logrus.Infof("HTTPX probe completed in %v: %d/%d subdomains exist", probeDuration, len(filteredSubdomains), len(allSubdomains))
+			logrus.Infof("HTTPX probe completed in %v for domain %s: %d/%d subdomains exist", probeDuration, domain, len(filteredSubdomains), len(allSubdomains))
 		}
 	} else {
-		logrus.Info("HTTPX probe not configured or no subdomains to probe, using all subdomains")
+		logrus.Infof("HTTPX probe not configured or no subdomains to probe for domain %s, using all subdomains", domain)
 		filteredSubdomains = allSubdomains
 	}
 
@@ -512,7 +572,7 @@ func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid
 		url := fmt.Sprintf("https://%s", subdomain)
 
 		// Extract domain and subdomain
-		domain, err := s.urlProcessor.ExtractDomain(url)
+		extractedDomain, err := s.urlProcessor.ExtractDomain(url)
 		if err != nil {
 			logrus.Warnf("Failed to extract domain from %s: %v", url, err)
 			continue
@@ -527,7 +587,7 @@ func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid
 			ProgramID:  programID,
 			ProgramURL: programURL,
 			URL:        url,
-			Domain:     domain,
+			Domain:     extractedDomain,
 			Subdomain:  subdomainName,
 			Status:     "active",
 			Source:     "secondary", // Mark as secondary asset from ChaosDB
@@ -539,7 +599,7 @@ func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid
 	// Save filtered ChaosDB assets to database
 	if len(assets) > 0 {
 		if err := s.assetRepo.CreateAssets(ctx, assets); err != nil {
-			logrus.Warnf("Failed to save ChaosDB assets: %v", err)
+			logrus.Warnf("Failed to save ChaosDB assets for domain %s: %v", domain, err)
 			// Don't return error, just log warning to continue processing
 		}
 	}

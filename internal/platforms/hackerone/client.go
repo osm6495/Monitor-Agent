@@ -221,19 +221,39 @@ func (c *Client) parseScopeAsset(attr ScopeAttributes) *ScopeAsset {
 		return nil
 	}
 
+	// Normalize URL to ensure it has https:// protocol
+	normalizedURL, err := c.urlProcessor.NormalizeURL(assetIdentifier)
+	if err != nil {
+		// If normalization fails, fallback to simple https:// addition
+		if !strings.HasPrefix(assetIdentifier, "http://") && !strings.HasPrefix(assetIdentifier, "https://") {
+			normalizedURL = "https://" + assetIdentifier
+		} else {
+			normalizedURL = assetIdentifier
+		}
+	}
+
 	// Handle different asset types
 	switch attr.AssetType {
 	case "URL":
 		return &ScopeAsset{
-			URL:    assetIdentifier,
-			Domain: c.extractDomain(assetIdentifier),
+			URL:    normalizedURL,
+			Domain: c.extractDomain(normalizedURL),
 			Type:   "url",
 		}
 	case "WILDCARD":
 		// Convert wildcard to base domain for ChaosDB discovery
 		domain := c.urlProcessor.ConvertWildcardToDomain(assetIdentifier)
+		normalizedDomain, err := c.urlProcessor.NormalizeURL(domain)
+		if err != nil {
+			// If normalization fails, fallback to simple https:// addition
+			if !strings.HasPrefix(domain, "http://") && !strings.HasPrefix(domain, "https://") {
+				normalizedDomain = "https://" + domain
+			} else {
+				normalizedDomain = domain
+			}
+		}
 		return &ScopeAsset{
-			URL:    domain,
+			URL:    normalizedDomain,
 			Domain: domain,
 			Type:   "wildcard",
 		}
@@ -246,8 +266,8 @@ func (c *Client) parseScopeAsset(attr ScopeAttributes) *ScopeAsset {
 		}
 	default:
 		return &ScopeAsset{
-			URL:    assetIdentifier,
-			Domain: assetIdentifier,
+			URL:    normalizedURL,
+			Domain: c.extractDomain(normalizedURL),
 			Type:   attr.AssetType,
 		}
 	}
