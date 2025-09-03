@@ -22,6 +22,7 @@ type ProbeResult struct {
 // ProbeConfig holds configuration for the HTTPX probe
 type ProbeConfig struct {
 	Timeout         time.Duration // Per-URL timeout (not total process timeout)
+	TotalTimeout    time.Duration // Total operation timeout for the entire probe
 	Concurrency     int
 	RateLimit       int
 	UserAgent       string
@@ -40,6 +41,7 @@ func NewClient(config *ProbeConfig) *Client {
 	if config == nil {
 		config = &ProbeConfig{
 			Timeout:         15 * time.Second,
+			TotalTimeout:    30 * time.Minute, // Default to 30 minutes for total operation
 			Concurrency:     25,
 			RateLimit:       100,
 			UserAgent:       "Monitor-Agent/1.0",
@@ -171,14 +173,30 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 	resultsCollected := 0
 	httpxFinished := false
 
-	// Set a reasonable timeout for the entire operation (max 5 minutes)
-	totalTimeout := 5 * time.Minute
-	if len(urls) < 100 {
-		// For smaller lists, use a shorter timeout
+	// Use configured total timeout if available, otherwise fall back to context deadline or calculated timeout
+	var totalTimeout time.Duration
+	if c.config.TotalTimeout > 0 {
+		// Use the configured total timeout
+		totalTimeout = c.config.TotalTimeout
+		logrus.Debugf("Using configured total timeout: %v", totalTimeout)
+	} else if deadline, ok := ctx.Deadline(); ok {
+		// Use the context deadline with a small buffer
+		totalTimeout = time.Until(deadline) - 5*time.Second
+		if totalTimeout <= 0 {
+			totalTimeout = 30 * time.Second // Fallback if deadline is too close
+		}
+		logrus.Debugf("Using context deadline: %v (timeout: %v)", deadline, totalTimeout)
+	} else {
+		// No deadline set, use a reasonable timeout based on domain count
 		totalTimeout = time.Duration(len(urls)) * c.config.Timeout / 2
 		if totalTimeout < 30*time.Second {
 			totalTimeout = 30 * time.Second
 		}
+		// Cap at 30 minutes for very large lists to prevent excessive resource usage
+		if totalTimeout > 30*time.Minute {
+			totalTimeout = 30 * time.Minute
+		}
+		logrus.Debugf("No context deadline, using calculated timeout: %v", totalTimeout)
 	}
 
 	logrus.Debugf("HTTPX probe timeout set to %v for %d domains", totalTimeout, len(urls))

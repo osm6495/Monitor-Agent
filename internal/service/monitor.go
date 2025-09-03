@@ -88,6 +88,7 @@ func NewMonitorService(cfg *config.Config, db *sqlx.DB) *MonitorService {
 	if cfg.Discovery.HTTPX.Enabled {
 		httpxClient = httpx.NewClient(&httpx.ProbeConfig{
 			Timeout:         cfg.Discovery.HTTPX.Timeout,
+			TotalTimeout:    cfg.Discovery.HTTPX.TotalTimeout,
 			Concurrency:     cfg.Discovery.HTTPX.Concurrency,
 			RateLimit:       cfg.Discovery.HTTPX.RateLimit,
 			FollowRedirects: cfg.Discovery.HTTPX.FollowRedirects,
@@ -538,10 +539,23 @@ func (s *MonitorService) processSingleDomain(ctx context.Context, programID uuid
 
 	logrus.Infof("ChaosDB discovered %d total subdomains for domain %s", len(allSubdomains), domain)
 
+	// Filter out wildcard subdomains before HTTPX probing
+	var cleanSubdomains []string
+	for _, subdomain := range allSubdomains {
+		// Remove wildcard prefixes (e.g., *.test.slackhq.com -> test.slackhq.com)
+		cleanSubdomain := s.urlProcessor.ConvertWildcardToDomain(subdomain)
+		if cleanSubdomain != "" {
+			cleanSubdomains = append(cleanSubdomains, cleanSubdomain)
+		}
+	}
+
+	logrus.Infof("Filtered %d wildcard subdomains, %d clean subdomains for domain %s",
+		len(allSubdomains)-len(cleanSubdomains), len(cleanSubdomains), domain)
+
 	// Filter subdomains using HTTPX probe if enabled
 	var filteredSubdomains []string
-	if s.httpxClient != nil && len(allSubdomains) > 0 {
-		logrus.Infof("Starting HTTPX probe to filter %d subdomains for domain %s", len(allSubdomains), domain)
+	if s.httpxClient != nil && len(cleanSubdomains) > 0 {
+		logrus.Infof("Starting HTTPX probe to filter %d subdomains for domain %s", len(cleanSubdomains), domain)
 		logrus.Debugf("HTTPX probe timeout set to %v", discoveryTimeout)
 
 		// Start HTTPX probe with progress logging
@@ -549,7 +563,7 @@ func (s *MonitorService) processSingleDomain(ctx context.Context, programID uuid
 
 		// Use a separate context for HTTPX probe with its own timeout
 		httpxCtx, httpxCancel := context.WithTimeout(domainCtx, discoveryTimeout)
-		filteredSubdomains, err = s.httpxClient.FilterExistingDomains(httpxCtx, allSubdomains)
+		filteredSubdomains, err = s.httpxClient.FilterExistingDomains(httpxCtx, cleanSubdomains)
 		httpxCancel()
 
 		probeDuration := time.Since(probeStart)
@@ -625,10 +639,24 @@ func (s *MonitorService) extractUniqueDomains(scopeAssets []*platforms.ScopeAsse
 			continue
 		}
 
-		domain, err := s.urlProcessor.ExtractDomain(asset.URL)
-		if err != nil {
-			logrus.Warnf("Failed to extract domain from %s: %v", asset.URL, err)
-			continue
+		var domain string
+		var err error
+
+		if asset.Type == "wildcard" {
+			// For wildcard assets, extract the base domain (wildcards already stripped)
+			// This ensures ChaosDB discovers subdomains under the base domain
+			domain, err = s.urlProcessor.ExtractDomain(asset.URL)
+			if err != nil {
+				logrus.Warnf("Failed to extract base domain from %s: %v", asset.URL, err)
+				continue
+			}
+		} else {
+			// For regular URL assets, extract domain normally
+			domain, err = s.urlProcessor.ExtractDomain(asset.URL)
+			if err != nil {
+				logrus.Warnf("Failed to extract domain from %s: %v", asset.URL, err)
+				continue
+			}
 		}
 
 		if !domainMap[domain] {

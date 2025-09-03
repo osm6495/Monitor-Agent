@@ -81,6 +81,7 @@ func TestLoad(t *testing.T) {
 					HTTPX: HTTPXConfig{
 						Enabled:         true,
 						Timeout:         15 * time.Second,
+						TotalTimeout:    30 * time.Minute,
 						Concurrency:     100,
 						RateLimit:       100,
 						FollowRedirects: true,
@@ -204,6 +205,7 @@ func TestLoad(t *testing.T) {
 					HTTPX: HTTPXConfig{
 						Enabled:         true,
 						Timeout:         15 * time.Second,
+						TotalTimeout:    30 * time.Minute,
 						Concurrency:     100,
 						RateLimit:       100,
 						FollowRedirects: true,
@@ -294,6 +296,7 @@ func TestConfig_Validate(t *testing.T) {
 					HTTPX: HTTPXConfig{
 						Enabled:         true,
 						Timeout:         30 * time.Second,
+						TotalTimeout:    30 * time.Minute,
 						Concurrency:     100,
 						RateLimit:       100,
 						FollowRedirects: true,

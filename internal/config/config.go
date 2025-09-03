@@ -87,6 +87,7 @@ type DiscoveryConfig struct {
 type HTTPXConfig struct {
 	Enabled         bool
 	Timeout         time.Duration
+	TotalTimeout    time.Duration // Total operation timeout for HTTPX probe
 	Concurrency     int
 	RateLimit       int
 	FollowRedirects bool
@@ -226,6 +227,11 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid HTTPX_TIMEOUT: %w", err)
 	}
 
+	httpxTotalTimeout, err := time.ParseDuration(getEnv("HTTPX_TOTAL_TIMEOUT", "30m"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid HTTPX_TOTAL_TIMEOUT: %w", err)
+	}
+
 	httpxConcurrency, err := strconv.Atoi(getEnv("HTTPX_CONCURRENCY", "100"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid HTTPX_CONCURRENCY: %w", err)
@@ -260,6 +266,7 @@ func Load() (*Config, error) {
 		HTTPX: HTTPXConfig{
 			Enabled:         httpxEnabled,
 			Timeout:         httpxTimeout,
+			TotalTimeout:    httpxTotalTimeout,
 			Concurrency:     httpxConcurrency,
 			RateLimit:       httpxRateLimit,
 			FollowRedirects: httpxFollowRedirects,

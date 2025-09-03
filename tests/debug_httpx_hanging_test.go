@@ -63,6 +63,7 @@ func testHTTPXProbeWithTimeout(t *testing.T, domains []string, timeout time.Dura
 	// Create HTTPX client with the specified timeout
 	httpxClient := httpx.NewClient(&httpx.ProbeConfig{
 		Timeout:         timeout,
+		TotalTimeout:    5 * time.Minute,
 		Concurrency:     25,
 		RateLimit:       100,
 		FollowRedirects: true,
@@ -141,6 +142,7 @@ func testHTTPXProbeWithConcurrency(t *testing.T, domains []string, concurrency i
 	// Create HTTPX client with specific concurrency
 	httpxClient := httpx.NewClient(&httpx.ProbeConfig{
 		Timeout:         30 * time.Second,
+		TotalTimeout:    5 * time.Minute,
 		Concurrency:     concurrency,
 		RateLimit:       100,
 		FollowRedirects: true,
