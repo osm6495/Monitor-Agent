@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -156,8 +155,24 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 	logrus.Infof("HTTPX configuration: Timeout=%ds, Threads=%d, RateLimit=%d",
 		int(c.config.Timeout.Seconds()), c.config.Concurrency, c.config.RateLimit)
 
-	// Run HTTPX enumeration
-	httpxRunner.RunEnumeration()
+	// Create a channel to signal when enumeration is complete
+	enumerationComplete := make(chan struct{})
+
+	// Start HTTPX enumeration in a goroutine
+	go func() {
+		defer close(enumerationComplete)
+		httpxRunner.RunEnumeration()
+	}()
+
+	// Wait for enumeration to complete or context to be cancelled
+	select {
+	case <-enumerationComplete:
+		logrus.Infof("HTTPX enumeration completed")
+	case <-ctx.Done():
+		logrus.Warnf("HTTPX enumeration cancelled due to context timeout: %v", ctx.Err())
+		// Give a small grace period for any pending results
+		time.Sleep(2 * time.Second)
+	}
 
 	// Log detailed results analysis
 	logrus.Infof("HTTPX enumeration completed. Results collected: %d/%d", len(results), len(urls))
@@ -294,18 +309,9 @@ func (c *Client) ProbeDomainsWithDetails(ctx context.Context, domains []string) 
 			}
 
 			if result.StatusCode > 0 {
-				// Use reflection to inspect available fields in the result
+				// Log basic result information without reflection
 				if c.config.Debug {
-					resultValue := reflect.ValueOf(result)
-					resultType := reflect.TypeOf(result)
-					logrus.Debugf("HTTPX result fields for %s:", result.URL)
-					for i := 0; i < resultValue.NumField(); i++ {
-						field := resultType.Field(i)
-						value := resultValue.Field(i)
-						if value.IsValid() && !value.IsZero() {
-							logrus.Debugf("  %s: %v", field.Name, value.Interface())
-						}
-					}
+					logrus.Debugf("HTTPX result for %s: StatusCode=%d", result.URL, result.StatusCode)
 				}
 
 				// Try to extract additional information from the result
@@ -360,11 +366,53 @@ func (c *Client) ProbeDomainsWithDetails(ctx context.Context, domains []string) 
 	logrus.Infof("Detailed HTTPX configuration: Timeout=%ds, Threads=%d, RateLimit=%d",
 		int(c.config.Timeout.Seconds()), c.config.Concurrency, c.config.RateLimit)
 
-	// Run HTTPX enumeration
-	httpxRunner.RunEnumeration()
+	// Create a channel to signal when enumeration is complete
+	enumerationComplete := make(chan struct{})
+
+	// Start HTTPX enumeration in a goroutine
+	go func() {
+		defer close(enumerationComplete)
+		httpxRunner.RunEnumeration()
+	}()
+
+	// Wait for enumeration to complete or context to be cancelled
+	select {
+	case <-enumerationComplete:
+		logrus.Infof("HTTPX enumeration completed")
+	case <-ctx.Done():
+		logrus.Warnf("HTTPX enumeration cancelled due to context timeout: %v", ctx.Err())
+		// Give a small grace period for any pending results
+		time.Sleep(2 * time.Second)
+	}
 
 	// Log detailed results analysis
 	logrus.Infof("Detailed HTTPX enumeration completed. Results collected: %d/%d", len(results), len(urls))
+
+	// Check if we're missing results and log details
+	if len(results) < len(urls) {
+		missingCount := len(urls) - len(results)
+		logrus.Warnf("HTTPX enumeration incomplete: %d/%d URLs processed, %d missing", len(results), len(urls), missingCount)
+
+		// Log some missing URLs for debugging (limit to first 10)
+		processedURLs := make(map[string]bool)
+		for _, result := range results {
+			processedURLs[result.URL] = true
+		}
+
+		missingURLs := []string{}
+		for _, url := range urls {
+			if !processedURLs[url] {
+				missingURLs = append(missingURLs, url)
+				if len(missingURLs) >= 10 {
+					break
+				}
+			}
+		}
+
+		if len(missingURLs) > 0 {
+			logrus.Warnf("Sample of missing URLs: %v", missingURLs)
+		}
+	}
 
 	// Log final summary
 	existingCount := 0

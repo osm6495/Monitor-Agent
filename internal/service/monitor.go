@@ -564,6 +564,10 @@ func (s *MonitorService) processSingleDomain(ctx context.Context, programID uuid
 
 		// Use a separate context for HTTPX probe with its own timeout
 		httpxCtx, httpxCancel := context.WithTimeout(domainCtx, discoveryTimeout)
+
+		// Log the timeout being used
+		logrus.Infof("HTTPX probe timeout set to %v for domain %s", discoveryTimeout, domain)
+
 		detailedResults, err = s.httpxClient.ProbeDomainsWithDetails(httpxCtx, cleanSubdomains)
 		httpxCancel()
 
@@ -573,9 +577,14 @@ func (s *MonitorService) processSingleDomain(ctx context.Context, programID uuid
 			logrus.Warnf("Detailed HTTPX probe failed after %v for domain %s, using all subdomains: %v", probeDuration, domain, err)
 			filteredSubdomains = allSubdomains
 		} else {
+			// Log detailed results analysis
+			logrus.Infof("HTTPX probe returned %d results for %d subdomains", len(detailedResults), len(cleanSubdomains))
+
 			// Extract existing subdomains from detailed results
+			existingCount := 0
 			for _, result := range detailedResults {
 				if result.Exists {
+					existingCount++
 					// Extract domain from URL
 					resultDomain := s.httpxClient.ExtractDomainFromURL(result.URL)
 					if resultDomain != "" {
@@ -583,8 +592,16 @@ func (s *MonitorService) processSingleDomain(ctx context.Context, programID uuid
 					}
 				}
 			}
-			logrus.Infof("Detailed HTTPX probe completed in %v for domain %s: %d/%d subdomains exist (captured %d detailed responses)",
-				probeDuration, domain, len(filteredSubdomains), len(allSubdomains), len(detailedResults))
+
+			logrus.Infof("Detailed HTTPX probe completed in %v for domain %s: %d/%d subdomains exist (captured %d detailed responses, %d existing)",
+				probeDuration, domain, len(filteredSubdomains), len(allSubdomains), len(detailedResults), existingCount)
+
+			// Warn if we got significantly fewer results than expected
+			if len(detailedResults) < len(cleanSubdomains) {
+				missingCount := len(cleanSubdomains) - len(detailedResults)
+				logrus.Warnf("HTTPX probe incomplete for domain %s: %d/%d subdomains processed, %d missing",
+					domain, len(detailedResults), len(cleanSubdomains), missingCount)
+			}
 		}
 	} else {
 		logrus.Infof("HTTPX probe not configured or no subdomains to probe for domain %s, using all subdomains", domain)
