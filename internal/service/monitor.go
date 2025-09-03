@@ -136,7 +136,14 @@ func (s *MonitorService) RunFullScan(ctx context.Context) error {
 	for i, platform := range platformList {
 		wg.Add(1)
 		go func(p platforms.Platform, platformIndex int) {
-			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					logrus.Errorf("Platform %s scan panicked: %v", p.GetName(), r)
+					errors <- fmt.Errorf("platform %s scan panicked: %v", p.GetName(), r)
+				}
+				wg.Done()
+			}()
+
 			logrus.Infof("Starting scan of platform %d/%d: %s", platformIndex+1, len(platformList), p.GetName())
 
 			startTime := time.Now()
@@ -185,12 +192,31 @@ func (s *MonitorService) scanPlatform(ctx context.Context, platform platforms.Pl
 
 	logrus.Infof("Found %d programs on platform %s", len(programs), platformName)
 
-	// Process each program
-	for _, program := range programs {
-		if err := s.processProgram(ctx, platform, program); err != nil {
-			logrus.Errorf("Failed to process program %s: %v", program.Name, err)
-			continue
-		}
+	// Process each program with individual timeouts
+	for i, program := range programs {
+		logrus.Infof("Processing program %d/%d: %s", i+1, len(programs), program.Name)
+
+		// Create a timeout context for each program
+		programCtx, cancel := context.WithTimeout(ctx, s.config.Discovery.Timeouts.ProgramProcess)
+
+		// Process the program with timeout and panic recovery
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logrus.Errorf("Program %s processing panicked: %v", program.Name, r)
+				}
+			}()
+
+			if err := s.processProgram(programCtx, platform, program); err != nil {
+				logrus.Errorf("Failed to process program %s: %v", program.Name, err)
+				// Continue to next program instead of failing the entire scan
+			}
+		}()
+
+		cancel()
+
+		// Small delay between programs to avoid overwhelming the system
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	// Mark inactive programs
@@ -203,6 +229,13 @@ func (s *MonitorService) scanPlatform(ctx context.Context, platform platforms.Pl
 
 // processProgram processes a single program
 func (s *MonitorService) processProgram(ctx context.Context, platform platforms.Platform, program *platforms.Program) error {
+	// Add panic recovery
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.Errorf("processProgram panicked for program %s: %v", program.Name, r)
+		}
+	}()
+
 	logrus.Infof("Processing program: %s (%s)", program.Name, program.Platform)
 
 	// Check if program already exists in database using ProgramURL as the unique identifier
@@ -260,6 +293,13 @@ func (s *MonitorService) processProgram(ctx context.Context, platform platforms.
 
 // hasNewPrimaryAssets checks if there are new primary assets compared to existing ones
 func (s *MonitorService) hasNewPrimaryAssets(ctx context.Context, program *database.Program, platform platforms.Platform) (bool, error) {
+	// Add panic recovery
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.Errorf("hasNewPrimaryAssets panicked for program %s: %v", program.Name, r)
+		}
+	}()
+
 	// Get current primary assets from database
 	existingPrimaryAssets, err := s.assetRepo.GetAssetsByProgramIDAndSource(ctx, program.ID, "primary")
 	if err != nil {
@@ -312,11 +352,25 @@ func (s *MonitorService) discoverProgramAssets(ctx context.Context, program *dat
 		}
 	}()
 
-	// Get program scope from platform
+	// Add panic recovery
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.Errorf("Program %s asset discovery panicked: %v", program.Name, r)
+			scan.Status = "failed"
+			scan.Error = fmt.Sprintf("Panic: %v", r)
+			// Try to update scan status even if we panicked
+			if err := s.scanRepo.UpdateScan(ctx, scan); err != nil {
+				logrus.Errorf("Failed to update scan status after panic: %v", err)
+			}
+		}
+	}()
+
+	// Get program scope from platform with timeout protection
 	scopeAssets, err := platform.GetProgramScope(ctx, program.ProgramURL)
 	if err != nil {
 		scan.Status = "failed"
 		scan.Error = err.Error()
+		logrus.Errorf("Failed to get program scope for %s: %v", program.Name, err)
 		return fmt.Errorf("failed to get program scope: %w", err)
 	}
 
@@ -365,6 +419,7 @@ func (s *MonitorService) discoverProgramAssets(ctx context.Context, program *dat
 		secondaryAssets, err := s.discoverWithChaosDB(ctx, program.ID, program.ProgramURL, domains)
 		if err != nil {
 			logrus.Warnf("ChaosDB discovery failed for program %s: %v", program.Name, err)
+			// Continue processing even if ChaosDB fails
 		} else {
 			logrus.Infof("ChaosDB discovered %d secondary assets for program %s", len(secondaryAssets), program.Name)
 		}
@@ -383,6 +438,13 @@ func (s *MonitorService) discoverProgramAssets(ctx context.Context, program *dat
 
 // discoverWithChaosDB discovers additional subdomains using ChaosDB and filters them with HTTPX probe
 func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid.UUID, programURL string, domains []string) ([]*database.Asset, error) {
+	// Add panic recovery
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.Errorf("discoverWithChaosDB panicked: %v", r)
+		}
+	}()
+
 	if s.chaosDBClient == nil {
 		logrus.Warn("ChaosDB client not configured, skipping discovery")
 		return nil, nil
@@ -399,7 +461,8 @@ func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid
 	// Use bulk discovery for efficiency
 	bulkResult, err := s.chaosDBClient.DiscoverDomainsBulk(discoveryCtx, domains)
 	if err != nil {
-		return nil, fmt.Errorf("ChaosDB bulk discovery failed: %w", err)
+		logrus.Warnf("ChaosDB bulk discovery failed: %v", err)
+		return nil, nil // Return empty result instead of error to continue processing
 	}
 
 	// Collect all subdomains from ChaosDB results
@@ -423,7 +486,12 @@ func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid
 
 		// Start HTTPX probe with progress logging
 		probeStart := time.Now()
-		filteredSubdomains, err = s.httpxClient.FilterExistingDomains(discoveryCtx, allSubdomains)
+
+		// Use a separate context for HTTPX probe with its own timeout
+		httpxCtx, httpxCancel := context.WithTimeout(discoveryCtx, discoveryTimeout)
+		filteredSubdomains, err = s.httpxClient.FilterExistingDomains(httpxCtx, allSubdomains)
+		httpxCancel()
+
 		probeDuration := time.Since(probeStart)
 
 		if err != nil {
@@ -471,7 +539,8 @@ func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid
 	// Save filtered ChaosDB assets to database
 	if len(assets) > 0 {
 		if err := s.assetRepo.CreateAssets(ctx, assets); err != nil {
-			return nil, fmt.Errorf("failed to save ChaosDB assets: %w", err)
+			logrus.Warnf("Failed to save ChaosDB assets: %v", err)
+			// Don't return error, just log warning to continue processing
 		}
 	}
 
@@ -480,6 +549,13 @@ func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid
 
 // extractUniqueDomains extracts unique domains from scope assets (only domain and wildcard types)
 func (s *MonitorService) extractUniqueDomains(scopeAssets []*platforms.ScopeAsset) []string {
+	// Add panic recovery
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.Errorf("extractUniqueDomains panicked: %v", r)
+		}
+	}()
+
 	domainMap := make(map[string]bool)
 	var domains []string
 
@@ -506,6 +582,13 @@ func (s *MonitorService) extractUniqueDomains(scopeAssets []*platforms.ScopeAsse
 
 // markInactivePrograms marks programs as inactive if they no longer exist
 func (s *MonitorService) markInactivePrograms(ctx context.Context, platformName string, currentPrograms []*platforms.Program) error {
+	// Add panic recovery
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.Errorf("markInactivePrograms panicked for platform %s: %v", platformName, r)
+		}
+	}()
+
 	// Get all active programs for this platform from database
 	dbPrograms, err := s.programRepo.GetProgramsByPlatform(ctx, platformName)
 	if err != nil {

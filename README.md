@@ -154,11 +154,15 @@ Monitor Agent
 
 #### HTTPX Probe Configuration
 - `HTTPX_ENABLED`: Enable HTTPX probe for filtering ChaosDB results (default: true)
-- `HTTPX_TIMEOUT`: HTTPX probe timeout (default: 30s)
+- `HTTPX_TIMEOUT`: HTTPX probe timeout per domain (default: 15s)
 - `HTTPX_CONCURRENCY`: Number of concurrent HTTPX probes (default: 25)
 - `HTTPX_RATE_LIMIT`: HTTPX probe rate limit (default: 100)
 - `HTTPX_FOLLOW_REDIRECTS`: Follow HTTP redirects (default: true)
 - `HTTPX_MAX_REDIRECTS`: Maximum number of redirects to follow (default: 3)
+
+#### Program-Level Timeouts
+- `PROGRAM_PROCESS_TIMEOUT`: Maximum time to process a single program (default: 45m)
+- `CHAOS_DISCOVERY_TIMEOUT`: Maximum time for ChaosDB discovery and HTTPX probing (default: 30m)
 
 **Note**: API keys are optional. The application will only scan platforms that have valid API keys configured. If no API keys are provided, the application will start but cannot perform scans.
 
@@ -234,6 +238,8 @@ Since this application performs one-off scans, you can schedule it using:
   - Configurable timeout, concurrency, and rate limiting
   - Follows redirects and handles various HTTP status codes
   - Only saves domains that actually exist and respond to HTTP requests
+  - **Robust Timeout Handling**: 15-second per-domain timeout with graceful fallback
+  - **Crash Prevention**: Comprehensive panic recovery and error handling
 
 ## Database Schema
 

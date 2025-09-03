@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/projectdiscovery/httpx/runner"
@@ -93,6 +94,10 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 	// Create a done channel to signal when HTTPX is finished
 	done := make(chan struct{})
 
+	// Use a mutex to protect channel operations
+	var mu sync.Mutex
+	channelClosed := false
+
 	// Create HTTPX runner options
 	options := &runner.Options{
 		InputTargetHost: urls,
@@ -123,17 +128,21 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 				logrus.Debugf("HTTPX result: %s -> status: %d, exists: %v", result.URL, result.StatusCode, probeResult.Exists)
 			}
 
-			select {
-			case results <- probeResult:
-				if c.config.Debug {
-					logrus.Debugf("Result sent to channel: %s", result.URL)
+			// Safely send result to channel
+			mu.Lock()
+			if !channelClosed {
+				select {
+				case results <- probeResult:
+					if c.config.Debug {
+						logrus.Debugf("Result sent to channel: %s", result.URL)
+					}
+				case <-ctx.Done():
+					if c.config.Debug {
+						logrus.Debugf("Context cancelled while sending result: %s", result.URL)
+					}
 				}
-			case <-ctx.Done():
-				if c.config.Debug {
-					logrus.Debugf("Context cancelled while sending result: %s", result.URL)
-				}
-				return
 			}
+			mu.Unlock()
 		},
 	}
 
@@ -145,8 +154,14 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 
 	// Run HTTPX in a goroutine
 	go func() {
-		defer httpxRunner.Close()
-		defer close(done)
+		defer func() {
+			httpxRunner.Close()
+			mu.Lock()
+			if !channelClosed {
+				close(done)
+			}
+			mu.Unlock()
+		}()
 		httpxRunner.RunEnumeration()
 	}()
 
@@ -156,13 +171,14 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 	resultsCollected := 0
 	httpxFinished := false
 
-	// Calculate timeout for the entire operation
-	totalTimeout := time.Duration(len(urls)) * c.config.Timeout / time.Duration(c.config.Concurrency)
-	if totalTimeout < 30*time.Second {
-		totalTimeout = 30 * time.Second
-	}
-	if totalTimeout > 5*time.Minute {
-		totalTimeout = 5 * time.Minute
+	// Set a reasonable timeout for the entire operation (max 5 minutes)
+	totalTimeout := 5 * time.Minute
+	if len(urls) < 100 {
+		// For smaller lists, use a shorter timeout
+		totalTimeout = time.Duration(len(urls)) * c.config.Timeout / 2
+		if totalTimeout < 30*time.Second {
+			totalTimeout = 30 * time.Second
+		}
 	}
 
 	logrus.Debugf("HTTPX probe timeout set to %v for %d domains", totalTimeout, len(urls))
@@ -220,8 +236,13 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 	}
 
 collectionComplete:
-	// Close the results channel to prevent goroutine leaks
-	close(results)
+	// Safely close the results channel
+	mu.Lock()
+	if !channelClosed {
+		channelClosed = true
+		close(results)
+	}
+	mu.Unlock()
 
 	// Wait for HTTPX to finish (with a short timeout)
 	select {

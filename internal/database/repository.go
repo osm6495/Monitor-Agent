@@ -258,9 +258,14 @@ func (r *AssetRepository) CreateAssets(ctx context.Context, assets []*Asset) err
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
+
+	// Track if we've committed the transaction
+	committed := false
 	defer func() {
-		if err := tx.Rollback(); err != nil {
-			logrus.Errorf("Failed to rollback transaction: %v", err)
+		if !committed {
+			if err := tx.Rollback(); err != nil {
+				logrus.Errorf("Failed to rollback transaction: %v", err)
+			}
 		}
 	}()
 
@@ -292,6 +297,7 @@ func (r *AssetRepository) CreateAssets(ctx context.Context, assets []*Asset) err
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
+	committed = true
 	return nil
 }
 
