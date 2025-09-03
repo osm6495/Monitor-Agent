@@ -126,9 +126,7 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 				probeResult.Error = "Domain does not exist or is unreachable"
 			}
 
-			if c.config.Debug {
-				logrus.Debugf("HTTPX result: %s -> status: %d, exists: %v", result.URL, result.StatusCode, probeResult.Exists)
-			}
+			logrus.Debugf("HTTPX result received: %s -> status: %d, exists: %v", result.URL, result.StatusCode, probeResult.Exists)
 
 			// Safely send result to channel
 			mu.Lock()
@@ -156,7 +154,9 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 
 	// Run HTTPX in a goroutine
 	go func() {
+		logrus.Debugf("Starting HTTPX runner for %d URLs", len(urls))
 		defer func() {
+			logrus.Debugf("HTTPX runner finished, closing runner")
 			httpxRunner.Close()
 			mu.Lock()
 			if !channelClosed {
@@ -181,25 +181,30 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 		logrus.Debugf("Using configured total timeout: %v", totalTimeout)
 	} else if deadline, ok := ctx.Deadline(); ok {
 		// Use the context deadline with a small buffer
-		totalTimeout = time.Until(deadline) - 5*time.Second
+		// Use a small fraction of the total timeout as buffer, but cap at 1/30 of total timeout
+		buffer := c.config.TotalTimeout / 60
+		maxBuffer := c.config.TotalTimeout / 30
+		if buffer > maxBuffer {
+			buffer = maxBuffer
+		}
+		minBuffer := c.config.Timeout / 8 // Use 1/8 of per-URL timeout as minimum
+		if buffer < minBuffer {
+			buffer = minBuffer
+		}
+		totalTimeout = time.Until(deadline) - buffer
 		if totalTimeout <= 0 {
-			totalTimeout = 30 * time.Second // Fallback if deadline is too close
+			totalTimeout = c.config.Timeout // Use configured per-URL timeout as fallback
 		}
-		logrus.Debugf("Using context deadline: %v (timeout: %v)", deadline, totalTimeout)
+		logrus.Debugf("Using context deadline: %v (timeout: %v, buffer: %v)", deadline, totalTimeout, buffer)
 	} else {
-		// No deadline set, use a reasonable timeout based on domain count
-		totalTimeout = time.Duration(len(urls)) * c.config.Timeout / 2
-		if totalTimeout < 30*time.Second {
-			totalTimeout = 30 * time.Second
-		}
-		// Cap at 30 minutes for very large lists to prevent excessive resource usage
-		if totalTimeout > 30*time.Minute {
-			totalTimeout = 30 * time.Minute
-		}
-		logrus.Debugf("No context deadline, using calculated timeout: %v", totalTimeout)
+		// No deadline set, use the configured total timeout
+		totalTimeout = c.config.TotalTimeout
+		logrus.Debugf("No context deadline, using configured total timeout: %v", totalTimeout)
 	}
 
 	logrus.Debugf("HTTPX probe timeout set to %v for %d domains", totalTimeout, len(urls))
+	logrus.Debugf("HTTPX configuration - Per-URL timeout: %v, Total timeout: %v, Concurrency: %d, Rate limit: %d",
+		c.config.Timeout, c.config.TotalTimeout, c.config.Concurrency, c.config.RateLimit)
 
 	// Create a timeout context for the entire operation
 	timeoutCtx, cancel := context.WithTimeout(ctx, totalTimeout)
@@ -233,9 +238,21 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 	// This handles the case where HTTPX processes URLs faster than we can collect results
 	if httpxFinished && resultsCollected < expectedResults {
 		logrus.Debugf("HTTPX finished early, attempting to collect remaining %d results", expectedResults-resultsCollected)
+		logrus.Debugf("HTTPX runner finished after collecting %d/%d results", resultsCollected, expectedResults)
 
-		// Try to collect remaining results with a short timeout
-		remainingTimeout := time.After(10 * time.Second)
+		// Try to collect remaining results with a configurable timeout
+		// Use a reasonable fraction of the total timeout, but cap at 1/6 of total timeout to prevent hanging
+		remainingTimeoutDuration := c.config.TotalTimeout / 10
+		maxRemainingTimeout := c.config.TotalTimeout / 6
+		if remainingTimeoutDuration > maxRemainingTimeout {
+			remainingTimeoutDuration = maxRemainingTimeout
+		}
+		minRemainingTimeout := c.config.Timeout // Use per-URL timeout as minimum
+		if remainingTimeoutDuration < minRemainingTimeout {
+			remainingTimeoutDuration = minRemainingTimeout
+		}
+		logrus.Debugf("Using remaining results timeout: %v (calculated from total timeout: %v)", remainingTimeoutDuration, c.config.TotalTimeout)
+		remainingTimeout := time.After(remainingTimeoutDuration)
 		for resultsCollected < expectedResults {
 			select {
 			case result := <-results:
@@ -262,12 +279,23 @@ collectionComplete:
 	}
 	mu.Unlock()
 
-	// Wait for HTTPX to finish (with a short timeout)
+	// Wait for HTTPX to finish (with a configurable timeout)
+	// Use a small fraction of the total timeout, but cap at 1/30 of total timeout to prevent hanging
+	runnerWaitTimeout := c.config.TotalTimeout / 60
+	maxRunnerWaitTimeout := c.config.TotalTimeout / 30
+	if runnerWaitTimeout > maxRunnerWaitTimeout {
+		runnerWaitTimeout = maxRunnerWaitTimeout
+	}
+	minRunnerWaitTimeout := c.config.Timeout / 8 // Use 1/8 of per-URL timeout as minimum
+	if runnerWaitTimeout < minRunnerWaitTimeout {
+		runnerWaitTimeout = minRunnerWaitTimeout
+	}
+
 	select {
 	case <-done:
 		logrus.Debug("HTTPX runner finished gracefully")
-	case <-time.After(5 * time.Second):
-		logrus.Warn("HTTPX runner did not finish within 5 seconds")
+	case <-time.After(runnerWaitTimeout):
+		logrus.Warnf("HTTPX runner did not finish within %v", runnerWaitTimeout)
 	}
 
 	// Log summary
