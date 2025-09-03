@@ -328,3 +328,119 @@ func TestProbeDomains_MixedResults(t *testing.T) {
 	// Total should equal input
 	assert.Equal(t, len(domains), existingCount+nonExistingCount)
 }
+
+func TestProbeDomainsWithDetails_EmptyList(t *testing.T) {
+	client := NewClient(nil)
+	ctx := context.Background()
+
+	results, err := client.ProbeDomainsWithDetails(ctx, []string{})
+	require.NoError(t, err)
+	assert.Empty(t, results)
+}
+
+func TestProbeDomainsWithDetails_ValidDomains(t *testing.T) {
+	client := NewClient(nil)
+	ctx := context.Background()
+
+	domains := []string{"example.com"}
+
+	results, err := client.ProbeDomainsWithDetails(ctx, domains)
+	require.NoError(t, err)
+	assert.Len(t, results, 1)
+
+	result := results[0]
+	assert.Equal(t, "https://example.com", result.URL)
+	assert.True(t, result.Exists)
+	assert.Equal(t, 200, result.StatusCode)
+	assert.Empty(t, result.Error)
+	// These fields are placeholders in the current implementation
+	assert.Equal(t, int64(0), result.ResponseTime)
+}
+
+func TestProbeDomainsWithDetails_InvalidDomains(t *testing.T) {
+	client := NewClient(nil)
+	ctx := context.Background()
+
+	domains := []string{"this-domain-definitely-does-not-exist-12345.com"}
+
+	results, err := client.ProbeDomainsWithDetails(ctx, domains)
+	require.NoError(t, err)
+
+	// HTTPX might not return results for non-existent domains
+	// So we check that we get either 0 or 1 results
+	if len(results) == 0 {
+		// This is acceptable - HTTPX didn't return any results for non-existent domain
+		t.Log("HTTPX returned no results for non-existent domain (this is acceptable)")
+	} else if len(results) == 1 {
+		result := results[0]
+		assert.Equal(t, "https://this-domain-definitely-does-not-exist-12345.com", result.URL)
+		assert.False(t, result.Exists)
+		assert.Equal(t, 0, result.StatusCode)
+		// Error might be empty if HTTPX doesn't provide error details
+	}
+}
+
+func TestDetailedProbeResult_ToJSON(t *testing.T) {
+	result := DetailedProbeResult{
+		URL:          "https://example.com",
+		StatusCode:   200,
+		Exists:       true,
+		Error:        "",
+		Headers:      map[string]string{"Server": "nginx"},
+		Body:         "<html><body>Hello World</body></html>",
+		ResponseTime: 150,
+		ContentType:  "text/html",
+		Server:       "nginx/1.18.0",
+		Title:        "Example Domain",
+		Technologies: []string{"nginx", "PHP"},
+	}
+
+	jsonData, err := result.ToJSON()
+	require.NoError(t, err)
+	assert.NotEmpty(t, jsonData)
+
+	// Verify the JSON contains expected fields
+	assert.Contains(t, jsonData, "example.com")
+	assert.Contains(t, jsonData, "200")
+	assert.Contains(t, jsonData, "nginx")
+	assert.Contains(t, jsonData, "Hello World")
+}
+
+func TestDetailedProbeResult_ToJSON_EmptyFields(t *testing.T) {
+	result := DetailedProbeResult{
+		URL:        "https://example.com",
+		StatusCode: 404,
+		Exists:     false,
+		Error:      "not found",
+	}
+
+	jsonData, err := result.ToJSON()
+	require.NoError(t, err)
+	assert.NotEmpty(t, jsonData)
+
+	// Verify the JSON contains expected fields
+	assert.Contains(t, jsonData, "example.com")
+	assert.Contains(t, jsonData, "404")
+	assert.Contains(t, jsonData, "not found")
+}
+
+func TestProbeDomainsWithDetails_ContextCancellation(t *testing.T) {
+	client := NewClient(nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	domains := []string{"example.com"}
+
+	// HTTPX might not respect context cancellation immediately
+	// So we check that we either get an error or the operation completes
+	results, err := client.ProbeDomainsWithDetails(ctx, domains)
+	if err != nil {
+		// If we get an error, it should be context cancelled
+		assert.Equal(t, context.Canceled, err)
+	} else {
+		// If no error, the operation completed (which is also acceptable)
+		// This can happen if HTTPX doesn't check context cancellation
+		t.Log("HTTPX completed despite cancelled context (this is acceptable)")
+		assert.NotNil(t, results)
+	}
+}

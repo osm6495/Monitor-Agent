@@ -20,7 +20,6 @@ func TestHTTPXIntegrationWithChaosDB(t *testing.T) {
 	// Test that HTTPX client can be created with the configuration
 	httpxClient := httpx.NewClient(&httpx.ProbeConfig{
 		Timeout:         10 * time.Second,
-		TotalTimeout:    5 * time.Minute,
 		Concurrency:     20,
 		RateLimit:       50,
 		FollowRedirects: true,

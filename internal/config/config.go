@@ -9,6 +9,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v3"
 )
 
 // Config holds all configuration for the application
@@ -87,7 +88,6 @@ type DiscoveryConfig struct {
 type HTTPXConfig struct {
 	Enabled         bool
 	Timeout         time.Duration
-	TotalTimeout    time.Duration // Total operation timeout for HTTPX probe
 	Concurrency     int
 	RateLimit       int
 	FollowRedirects bool
@@ -101,14 +101,24 @@ type TimeoutConfig struct {
 	ChaosDiscovery time.Duration
 }
 
-// Load loads configuration from environment variables
+// Load loads configuration from YAML config file and environment variables
 func Load() (*Config, error) {
 	// Load .env file if it exists
 	if err := godotenv.Load(); err != nil {
 		logrus.Debug("No .env file found, using environment variables")
 	}
 
-	config := &Config{}
+	// Try to load from config file first
+	config, err := loadFromConfigFile()
+	if err != nil {
+		logrus.Debugf("Failed to load from config file, using environment variables: %v", err)
+		config = &Config{}
+	} else {
+		logrus.Info("Configuration loaded from config file")
+		// Still load sensitive values from environment variables
+		loadSensitiveFromEnv(config)
+		return config, nil
+	}
 
 	// Database configuration
 	dbPort, err := strconv.Atoi(getEnv("DB_PORT", "5432"))
@@ -227,11 +237,6 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid HTTPX_TIMEOUT: %w", err)
 	}
 
-	httpxTotalTimeout, err := time.ParseDuration(getEnv("HTTPX_TOTAL_TIMEOUT", "30m"))
-	if err != nil {
-		return nil, fmt.Errorf("invalid HTTPX_TOTAL_TIMEOUT: %w", err)
-	}
-
 	httpxConcurrency, err := strconv.Atoi(getEnv("HTTPX_CONCURRENCY", "100"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid HTTPX_CONCURRENCY: %w", err)
@@ -266,7 +271,6 @@ func Load() (*Config, error) {
 		HTTPX: HTTPXConfig{
 			Enabled:         httpxEnabled,
 			Timeout:         httpxTimeout,
-			TotalTimeout:    httpxTotalTimeout,
 			Concurrency:     httpxConcurrency,
 			RateLimit:       httpxRateLimit,
 			FollowRedirects: httpxFollowRedirects,
@@ -280,6 +284,61 @@ func Load() (*Config, error) {
 	}
 
 	return config, nil
+}
+
+// loadFromConfigFile loads configuration from YAML config file
+func loadFromConfigFile() (*Config, error) {
+	configPath := getConfigPath()
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
+	}
+
+	var config Config
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	return &config, nil
+}
+
+// getConfigPath returns the path to the config file
+func getConfigPath() string {
+	// Check for config file in current directory first
+	if _, err := os.Stat("configs/config.yaml"); err == nil {
+		return "configs/config.yaml"
+	}
+
+	// Check for config file in parent directory
+	if _, err := os.Stat("../configs/config.yaml"); err == nil {
+		return "../configs/config.yaml"
+	}
+
+	// Default to current directory
+	return "configs/config.yaml"
+}
+
+// loadSensitiveFromEnv loads sensitive configuration values from environment variables
+func loadSensitiveFromEnv(config *Config) {
+	// Database password
+	if password := os.Getenv("DB_PASSWORD"); password != "" {
+		config.Database.Password = password
+	}
+
+	// API keys
+	if apiKey := os.Getenv("HACKERONE_API_KEY"); apiKey != "" {
+		config.APIs.HackerOne.APIKey = apiKey
+	}
+	if username := os.Getenv("HACKERONE_USERNAME"); username != "" {
+		config.APIs.HackerOne.Username = username
+	}
+	if apiKey := os.Getenv("BUGCROWD_API_KEY"); apiKey != "" {
+		config.APIs.BugCrowd.APIKey = apiKey
+	}
+	if apiKey := os.Getenv("CHAOSDB_API_KEY"); apiKey != "" {
+		config.APIs.ChaosDB.APIKey = apiKey
+	}
 }
 
 // Validate validates the configuration

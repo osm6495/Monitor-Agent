@@ -13,47 +13,61 @@ import (
 
 // TestHTTPXProbeWithRealisticChaosDBData tests HTTPX probes using realistic ChaosDB output
 func TestHTTPXProbeWithRealisticChaosDBData(t *testing.T) {
-	// Create realistic ChaosDB output based on the Slack example from the test data
-	realisticChaosDBOutput := &chaosdb.BulkDiscoveryResult{
-		Results: []chaosdb.DiscoveryResult{
-			{
-				Domain:       "slack.com",
-				Subdomains:   []string{"api", "app", "status", "edgeapi", "hooks", "files", "rtm"},
-				Count:        7,
-				DiscoveredAt: time.Now(),
-			},
-			{
-				Domain:       "slack-status.com",
-				Subdomains:   []string{"www", "status", "api"},
-				Count:        3,
-				DiscoveredAt: time.Now(),
-			},
-			{
-				Domain:       "slackhq.com",
-				Subdomains:   []string{"www", "brand", "campaign", "investor", "blog"},
-				Count:        5,
-				DiscoveredAt: time.Now(),
-			},
-		},
-		TotalCount:   15,
-		ErrorCount:   0,
-		DiscoveredAt: time.Now(),
-	}
+	// Add test timeout to prevent hanging
+	done := make(chan bool)
+	go func() {
+		defer close(done)
 
-	// Extract all subdomains for HTTPX probing
-	var allSubdomains []string
-	for _, result := range realisticChaosDBOutput.Results {
-		for _, subdomain := range result.Subdomains {
-			fullDomain := fmt.Sprintf("%s.%s", subdomain, result.Domain)
-			allSubdomains = append(allSubdomains, fullDomain)
+		// Create realistic ChaosDB output based on the Slack example from the test data
+		realisticChaosDBOutput := &chaosdb.BulkDiscoveryResult{
+			Results: []chaosdb.DiscoveryResult{
+				{
+					Domain:       "slack.com",
+					Subdomains:   []string{"api", "app", "status", "edgeapi", "hooks", "files", "rtm"},
+					Count:        7,
+					DiscoveredAt: time.Now(),
+				},
+				{
+					Domain:       "slack-status.com",
+					Subdomains:   []string{"www", "status", "api"},
+					Count:        3,
+					DiscoveredAt: time.Now(),
+				},
+				{
+					Domain:       "slackhq.com",
+					Subdomains:   []string{"www", "brand", "campaign", "investor", "blog"},
+					Count:        5,
+					DiscoveredAt: time.Now(),
+				},
+			},
+			TotalCount:   15,
+			ErrorCount:   0,
+			DiscoveredAt: time.Now(),
 		}
+
+		// Extract all subdomains for HTTPX probing
+		var allSubdomains []string
+		for _, result := range realisticChaosDBOutput.Results {
+			for _, subdomain := range result.Subdomains {
+				fullDomain := fmt.Sprintf("%s.%s", subdomain, result.Domain)
+				allSubdomains = append(allSubdomains, fullDomain)
+			}
+		}
+
+		t.Logf("Testing HTTPX probe with %d realistic subdomains from ChaosDB", len(allSubdomains))
+		t.Logf("Subdomains: %v", allSubdomains)
+
+		// Test with 30 second timeout (as requested)
+		testHTTPXProbeWithTimeout(t, allSubdomains, 30*time.Second)
+	}()
+
+	// Wait for test to complete or timeout after 2 minutes
+	select {
+	case <-done:
+		t.Log("Test completed successfully")
+	case <-time.After(2 * time.Minute):
+		t.Fatal("Test timed out after 2 minutes - HTTPX probe is hanging")
 	}
-
-	t.Logf("Testing HTTPX probe with %d realistic subdomains from ChaosDB", len(allSubdomains))
-	t.Logf("Subdomains: %v", allSubdomains)
-
-	// Test with 30 second timeout (as requested)
-	testHTTPXProbeWithTimeout(t, allSubdomains, 30*time.Second)
 }
 
 // testHTTPXProbeWithTimeout tests HTTPX probe with a specific timeout
@@ -63,12 +77,11 @@ func testHTTPXProbeWithTimeout(t *testing.T, domains []string, timeout time.Dura
 	// Create HTTPX client with the specified timeout
 	httpxClient := httpx.NewClient(&httpx.ProbeConfig{
 		Timeout:         timeout,
-		TotalTimeout:    5 * time.Minute,
-		Concurrency:     25,
-		RateLimit:       100,
+		Concurrency:     5,  // Reduce concurrency to see if it helps
+		RateLimit:       10, // Reduce rate limit to see if it helps
 		FollowRedirects: true,
 		MaxRedirects:    3,
-		Debug:           false, // Disable debug logging for cleaner test output
+		Debug:           true, // Enable debug to see what's happening
 	})
 
 	// Create context with timeout
@@ -111,6 +124,9 @@ func testHTTPXProbeWithTimeout(t *testing.T, domains []string, timeout time.Dura
 	assert.LessOrEqual(t, duration, timeout+10*time.Second, "HTTPX probe should complete within timeout + buffer")
 	assert.Greater(t, len(results), 0, "Should get some results")
 
+	// HTTPX may not process all URLs due to internal timeouts, so accept partial results
+	t.Logf("HTTPX probe collected %d/%d results - partial results are normal", len(results), len(domains))
+
 	// Check if we're getting stuck waiting for results
 	if duration > timeout {
 		t.Logf("WARNING: HTTPX probe took longer than expected timeout (%v > %v)", duration, timeout)
@@ -120,18 +136,32 @@ func testHTTPXProbeWithTimeout(t *testing.T, domains []string, timeout time.Dura
 
 // TestHTTPXProbeWithLargeDataset tests HTTPX probe with a larger dataset to stress test
 func TestHTTPXProbeWithLargeDataset(t *testing.T) {
-	// Create a larger dataset to stress test the HTTPX probe
-	largeDataset := generateLargeTestDataset(100) // 100 domains
+	// Add test timeout to prevent hanging
+	done := make(chan bool)
+	go func() {
+		defer close(done)
 
-	t.Logf("Testing HTTPX probe with large dataset: %d domains", len(largeDataset))
+		// Create a larger dataset to stress test the HTTPX probe
+		largeDataset := generateLargeTestDataset(100) // 100 domains
 
-	// Test with different concurrency levels
-	concurrencyLevels := []int{10, 25, 50, 100}
+		t.Logf("Testing HTTPX probe with large dataset: %d domains", len(largeDataset))
 
-	for _, concurrency := range concurrencyLevels {
-		t.Run(fmt.Sprintf("Concurrency_%d", concurrency), func(t *testing.T) {
-			testHTTPXProbeWithConcurrency(t, largeDataset, concurrency)
-		})
+		// Test with different concurrency levels
+		concurrencyLevels := []int{10, 25, 50, 100}
+
+		for _, concurrency := range concurrencyLevels {
+			t.Run(fmt.Sprintf("Concurrency_%d", concurrency), func(t *testing.T) {
+				testHTTPXProbeWithConcurrency(t, largeDataset, concurrency)
+			})
+		}
+	}()
+
+	// Wait for test to complete or timeout after 3 minutes
+	select {
+	case <-done:
+		t.Log("Test completed successfully")
+	case <-time.After(3 * time.Minute):
+		t.Fatal("Test timed out after 3 minutes - HTTPX probe is hanging")
 	}
 }
 
@@ -142,7 +172,6 @@ func testHTTPXProbeWithConcurrency(t *testing.T, domains []string, concurrency i
 	// Create HTTPX client with specific concurrency
 	httpxClient := httpx.NewClient(&httpx.ProbeConfig{
 		Timeout:         30 * time.Second,
-		TotalTimeout:    5 * time.Minute,
 		Concurrency:     concurrency,
 		RateLimit:       100,
 		FollowRedirects: true,

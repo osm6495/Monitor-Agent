@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"runtime"
 	"sync"
@@ -88,7 +89,6 @@ func NewMonitorService(cfg *config.Config, db *sqlx.DB) *MonitorService {
 	if cfg.Discovery.HTTPX.Enabled {
 		httpxClient = httpx.NewClient(&httpx.ProbeConfig{
 			Timeout:         cfg.Discovery.HTTPX.Timeout,
-			TotalTimeout:    cfg.Discovery.HTTPX.TotalTimeout,
 			Concurrency:     cfg.Discovery.HTTPX.Concurrency,
 			RateLimit:       cfg.Discovery.HTTPX.RateLimit,
 			FollowRedirects: cfg.Discovery.HTTPX.FollowRedirects,
@@ -552,10 +552,11 @@ func (s *MonitorService) processSingleDomain(ctx context.Context, programID uuid
 	logrus.Infof("Filtered %d wildcard subdomains, %d clean subdomains for domain %s",
 		len(allSubdomains)-len(cleanSubdomains), len(cleanSubdomains), domain)
 
-	// Filter subdomains using HTTPX probe if enabled
+	// Filter subdomains using HTTPX probe if enabled and capture detailed responses
 	var filteredSubdomains []string
+	var detailedResults []httpx.DetailedProbeResult
 	if s.httpxClient != nil && len(cleanSubdomains) > 0 {
-		logrus.Infof("Starting HTTPX probe to filter %d subdomains for domain %s", len(cleanSubdomains), domain)
+		logrus.Infof("Starting detailed HTTPX probe to filter %d subdomains for domain %s", len(cleanSubdomains), domain)
 		logrus.Debugf("HTTPX probe timeout set to %v", discoveryTimeout)
 
 		// Start HTTPX probe with progress logging
@@ -563,16 +564,27 @@ func (s *MonitorService) processSingleDomain(ctx context.Context, programID uuid
 
 		// Use a separate context for HTTPX probe with its own timeout
 		httpxCtx, httpxCancel := context.WithTimeout(domainCtx, discoveryTimeout)
-		filteredSubdomains, err = s.httpxClient.FilterExistingDomains(httpxCtx, cleanSubdomains)
+		detailedResults, err = s.httpxClient.ProbeDomainsWithDetails(httpxCtx, cleanSubdomains)
 		httpxCancel()
 
 		probeDuration := time.Since(probeStart)
 
 		if err != nil {
-			logrus.Warnf("HTTPX probe failed after %v for domain %s, using all subdomains: %v", probeDuration, domain, err)
+			logrus.Warnf("Detailed HTTPX probe failed after %v for domain %s, using all subdomains: %v", probeDuration, domain, err)
 			filteredSubdomains = allSubdomains
 		} else {
-			logrus.Infof("HTTPX probe completed in %v for domain %s: %d/%d subdomains exist", probeDuration, domain, len(filteredSubdomains), len(allSubdomains))
+			// Extract existing subdomains from detailed results
+			for _, result := range detailedResults {
+				if result.Exists {
+					// Extract domain from URL
+					resultDomain := s.httpxClient.ExtractDomainFromURL(result.URL)
+					if resultDomain != "" {
+						filteredSubdomains = append(filteredSubdomains, resultDomain)
+					}
+				}
+			}
+			logrus.Infof("Detailed HTTPX probe completed in %v for domain %s: %d/%d subdomains exist (captured %d detailed responses)",
+				probeDuration, domain, len(filteredSubdomains), len(allSubdomains), len(detailedResults))
 		}
 	} else {
 		logrus.Infof("HTTPX probe not configured or no subdomains to probe for domain %s, using all subdomains", domain)
@@ -615,6 +627,11 @@ func (s *MonitorService) processSingleDomain(ctx context.Context, programID uuid
 		if err := s.assetRepo.CreateAssets(ctx, assets); err != nil {
 			logrus.Warnf("Failed to save ChaosDB assets for domain %s: %v", domain, err)
 			// Don't return error, just log warning to continue processing
+		} else {
+			// Save detailed HTTPX responses if we have them
+			if len(detailedResults) > 0 {
+				s.saveDetailedResponses(ctx, assets, detailedResults)
+			}
 		}
 	}
 
@@ -807,6 +824,70 @@ func (s *MonitorService) CheckSystemHealth(ctx context.Context) error {
 
 	logrus.Debugf("System health check passed - Goroutines: %d", numGoroutines)
 	return nil
+}
+
+// saveDetailedResponses saves detailed HTTPX responses to the database
+func (s *MonitorService) saveDetailedResponses(ctx context.Context, assets []*database.Asset, detailedResults []httpx.DetailedProbeResult) {
+	// Add panic recovery
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.Errorf("saveDetailedResponses panicked: %v", r)
+		}
+	}()
+
+	// Create a map of URL to Asset for quick lookup
+	urlToAsset := make(map[string]*database.Asset)
+	for _, asset := range assets {
+		urlToAsset[asset.URL] = asset
+	}
+
+	// Save each detailed response
+	savedCount := 0
+	for _, result := range detailedResults {
+		if !result.Exists {
+			continue // Skip non-existing domains
+		}
+
+		// Find the corresponding asset
+		asset, exists := urlToAsset[result.URL]
+		if !exists {
+			logrus.Debugf("No corresponding asset found for URL: %s", result.URL)
+			continue
+		}
+
+		// Convert headers to JSON string
+		var headersJSON string
+		if len(result.Headers) > 0 {
+			if headersBytes, err := json.Marshal(result.Headers); err == nil {
+				headersJSON = string(headersBytes)
+			} else {
+				logrus.Warnf("Failed to marshal headers for %s: %v", result.URL, err)
+				headersJSON = "{}"
+			}
+		} else {
+			headersJSON = "{}"
+		}
+
+		// Create AssetResponse record
+		assetResponse := &database.AssetResponse{
+			AssetID:      asset.ID,
+			StatusCode:   result.StatusCode,
+			Headers:      headersJSON,
+			Body:         result.Body,
+			ResponseTime: result.ResponseTime,
+		}
+
+		// Save to database
+		if err := s.assetRepo.CreateAssetResponse(ctx, assetResponse); err != nil {
+			logrus.Warnf("Failed to save asset response for %s: %v", result.URL, err)
+		} else {
+			savedCount++
+			logrus.Debugf("Saved detailed response for %s (status: %d, body size: %d bytes)",
+				result.URL, result.StatusCode, len(result.Body))
+		}
+	}
+
+	logrus.Infof("Saved %d detailed HTTPX responses to database", savedCount)
 }
 
 // ProgramStats represents program statistics

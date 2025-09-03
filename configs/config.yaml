@@ -1,0 +1,96 @@
+# Monitor Agent Configuration File
+
+# Database Configuration
+database:
+  host: "localhost"
+  port: 5432
+  name: "monitor_agent"
+  user: "monitor_agent"
+  password: ""  # Set via environment variable for security
+  ssl_mode: "disable"
+  ssl_cert: ""
+  ssl_key: ""
+  ssl_root_cert: ""
+  connect_timeout: "60s"
+  max_open_conns: 25
+  max_idle_conns: 5
+  conn_max_lifetime: "5m"
+
+# API Configuration
+apis:
+  hackerone:
+    username: ""  # Set via environment variable
+    api_key: ""   # Set via environment variable
+    rate_limit: 550
+  bugcrowd:
+    api_key: ""   # Set via environment variable
+    rate_limit: 55
+  chaosdb:
+    api_key: ""   # Set via environment variable
+    rate_limit: 55
+
+# Application Configuration
+app:
+  log_level: "info"
+  environment: "development"
+
+# HTTP Client Configuration
+http:
+  timeout: "60s"
+  retry_attempts: 3
+  retry_delay: "1s"
+
+# Discovery Configuration
+discovery:
+  bulk_size: 100
+  
+  # HTTPX Probe Configuration
+  httpx:
+    enabled: true
+    timeout: "15s"
+    concurrency: 100
+    rate_limit: 100
+    follow_redirects: true
+    max_redirects: 3
+    debug: false
+  
+  # Timeouts
+  timeouts:
+    program_process: "45m"
+    chaos_discovery: "30m"
+
+# Circuit Breaker Configuration
+circuit_breaker:
+  failure_threshold: 5
+  recovery_timeout: "60s"
+  success_threshold: 3
+  timeout: "30s"
+  max_concurrent_calls: 10
+
+# Worker Pool Configuration
+worker_pool:
+  size: 10
+  queue_size: 100
+
+# Metrics Configuration
+metrics:
+  enabled: true
+  port: 9090
+  path: "/metrics"
+
+# Logging Configuration
+logging:
+  format: "json"
+  correlation_id_enabled: true
+  level: "info"
+
+# Health Check Configuration
+health_check:
+  timeout: "30s"
+  interval: "60s"
+
+# API Key Rotation Configuration
+api_key_rotation:
+  enabled: false
+  interval: "24h"
+  expiry_warning: "7d"
