@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/monitor-agent/internal/utils"
 	"github.com/projectdiscovery/httpx/runner"
 	"github.com/sirupsen/logrus"
 )
@@ -48,7 +49,8 @@ type ProbeConfig struct {
 
 // Client represents an HTTPX probe client
 type Client struct {
-	config *ProbeConfig
+	config       *ProbeConfig
+	urlProcessor *utils.URLProcessor
 }
 
 // NewClient creates a new HTTPX probe client
@@ -66,7 +68,8 @@ func NewClient(config *ProbeConfig) *Client {
 	}
 
 	return &Client{
-		config: config,
+		config:       config,
+		urlProcessor: utils.NewURLProcessor(),
 	}
 }
 
@@ -558,6 +561,8 @@ func (r *DetailedProbeResult) ToJSON() (string, error) {
 // convertDomainsToURLs converts a list of domains to URLs with proper protocol handling
 func (c *Client) convertDomainsToURLs(domains []string) []string {
 	var urls []string
+	var invalidDomains []string
+
 	for _, domain := range domains {
 		// Clean domain and add protocol
 		cleanDomain := strings.TrimSpace(domain)
@@ -570,6 +575,20 @@ func (c *Client) convertDomainsToURLs(domains []string) []string {
 			continue
 		}
 
+		// Extract domain name for validation (remove protocol if present)
+		domainName := cleanDomain
+		if strings.HasPrefix(cleanDomain, "http://") {
+			domainName = strings.TrimPrefix(cleanDomain, "http://")
+		} else if strings.HasPrefix(cleanDomain, "https://") {
+			domainName = strings.TrimPrefix(cleanDomain, "https://")
+		}
+
+		// Validate domain before adding to URLs
+		if !c.urlProcessor.IsValidDomain(domainName) {
+			invalidDomains = append(invalidDomains, domainName)
+			continue
+		}
+
 		// Add protocol if not present
 		if !strings.HasPrefix(cleanDomain, "http://") && !strings.HasPrefix(cleanDomain, "https://") {
 			urls = append(urls, fmt.Sprintf("https://%s", cleanDomain))
@@ -577,6 +596,16 @@ func (c *Client) convertDomainsToURLs(domains []string) []string {
 			urls = append(urls, cleanDomain)
 		}
 	}
+
+	// Log invalid domains for debugging
+	if len(invalidDomains) > 0 {
+		examples := invalidDomains
+		if len(examples) > 5 {
+			examples = examples[:5]
+		}
+		logrus.Debugf("HTTPX filtered out %d invalid domains, examples: %v", len(invalidDomains), examples)
+	}
+
 	return urls
 }
 

@@ -157,6 +157,83 @@ func (up *URLProcessor) IsIPAddress(hostname string) bool {
 	return ipRegex.MatchString(hostname)
 }
 
+// IsValidDomain checks if a string is a valid domain name
+func (up *URLProcessor) IsValidDomain(domain string) bool {
+	// Handle empty or whitespace-only domains
+	if strings.TrimSpace(domain) == "" {
+		return false
+	}
+
+	// Remove any wildcard prefixes for validation
+	cleanDomain := strings.TrimPrefix(domain, "*.")
+	cleanDomain = strings.TrimSpace(cleanDomain)
+
+	// Check if it's just a wildcard without domain
+	if cleanDomain == "" || cleanDomain == "*" {
+		return false
+	}
+
+	// Check for obviously invalid patterns
+	// Hash-like strings (32+ character hex strings)
+	if len(cleanDomain) >= 32 && regexp.MustCompile(`^[a-f0-9]+$`).MatchString(cleanDomain) {
+		return false
+	}
+
+	// Check for malformed strings with numbers and letters mixed without dots
+	if !strings.Contains(cleanDomain, ".") && regexp.MustCompile(`^[a-zA-Z0-9]+$`).MatchString(cleanDomain) && len(cleanDomain) > 20 {
+		return false
+	}
+
+	// Check for strings that are just numbers
+	if regexp.MustCompile(`^[0-9]+$`).MatchString(cleanDomain) {
+		return false
+	}
+
+	// Check for strings that are too short to be valid domains
+	if len(cleanDomain) < 3 {
+		return false
+	}
+
+	// Check for strings that are too long to be valid domains
+	if len(cleanDomain) > 253 {
+		return false
+	}
+
+	// Check for invalid characters (domains should only contain letters, numbers, dots, and hyphens)
+	if !regexp.MustCompile(`^[a-zA-Z0-9.-]+$`).MatchString(cleanDomain) {
+		return false
+	}
+
+	// Check that it doesn't start or end with a dot or hyphen
+	if strings.HasPrefix(cleanDomain, ".") || strings.HasSuffix(cleanDomain, ".") ||
+		strings.HasPrefix(cleanDomain, "-") || strings.HasSuffix(cleanDomain, "-") {
+		return false
+	}
+
+	// Check that it has at least one dot (for TLD)
+	if !strings.Contains(cleanDomain, ".") {
+		return false
+	}
+
+	// Check that each label (between dots) is valid
+	labels := strings.Split(cleanDomain, ".")
+	for _, label := range labels {
+		if len(label) == 0 || len(label) > 63 {
+			return false
+		}
+		// Each label should only contain letters, numbers, and hyphens
+		if !regexp.MustCompile(`^[a-zA-Z0-9-]+$`).MatchString(label) {
+			return false
+		}
+		// Labels shouldn't start or end with hyphens
+		if strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+			return false
+		}
+	}
+
+	return true
+}
+
 // extractDomainManually extracts domain from a string when URL parsing fails
 func (up *URLProcessor) extractDomainManually(urlStr string) string {
 	// Remove protocol if present

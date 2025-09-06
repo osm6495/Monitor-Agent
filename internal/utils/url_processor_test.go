@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -368,6 +369,124 @@ func TestURLProcessor_IsIPAddress(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := processor.IsIPAddress(tt.hostname)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestURLProcessor_IsValidDomain(t *testing.T) {
+	processor := NewURLProcessor()
+
+	tests := []struct {
+		name     string
+		domain   string
+		expected bool
+	}{
+		{
+			name:     "valid domain",
+			domain:   "example.com",
+			expected: true,
+		},
+		{
+			name:     "valid subdomain",
+			domain:   "subdomain.example.com",
+			expected: true,
+		},
+		{
+			name:     "valid wildcard domain",
+			domain:   "*.example.com",
+			expected: true,
+		},
+		{
+			name:     "valid domain with hyphen",
+			domain:   "test-domain.example.com",
+			expected: true,
+		},
+		{
+			name:     "valid IP address",
+			domain:   "192.168.1.1",
+			expected: true,
+		},
+		{
+			name:     "empty string",
+			domain:   "",
+			expected: false,
+		},
+		{
+			name:     "just wildcard",
+			domain:   "*",
+			expected: false,
+		},
+		{
+			name:     "hash-like string",
+			domain:   "0027ccb97c839fec02edebe904d50ff8",
+			expected: false,
+		},
+		{
+			name:     "malformed string",
+			domain:   "57777hh21124156674c00b9",
+			expected: false,
+		},
+		{
+			name:     "just numbers",
+			domain:   "123456789",
+			expected: false,
+		},
+		{
+			name:     "too short",
+			domain:   "ab",
+			expected: false,
+		},
+		{
+			name:     "no dots",
+			domain:   "example",
+			expected: false,
+		},
+		{
+			name:     "starts with dot",
+			domain:   ".example.com",
+			expected: false,
+		},
+		{
+			name:     "ends with dot",
+			domain:   "example.com.",
+			expected: false,
+		},
+		{
+			name:     "starts with hyphen",
+			domain:   "-example.com",
+			expected: false,
+		},
+		{
+			name:     "ends with hyphen",
+			domain:   "example.com-",
+			expected: false,
+		},
+		{
+			name:     "invalid characters",
+			domain:   "example@.com",
+			expected: false,
+		},
+		{
+			name:     "label too long",
+			domain:   "a" + strings.Repeat("b", 63) + ".com",
+			expected: false,
+		},
+		{
+			name:     "label starts with hyphen",
+			domain:   "example.-test.com",
+			expected: false,
+		},
+		{
+			name:     "label ends with hyphen",
+			domain:   "example.test-.com",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := processor.IsValidDomain(tt.domain)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

@@ -539,18 +539,33 @@ func (s *MonitorService) processSingleDomain(ctx context.Context, programID uuid
 
 	logrus.Infof("ChaosDB discovered %d total subdomains for domain %s", len(allSubdomains), domain)
 
-	// Filter out wildcard subdomains before HTTPX probing
+	// Filter out wildcard subdomains and validate domains before HTTPX probing
 	var cleanSubdomains []string
+	var invalidSubdomains []string
 	for _, subdomain := range allSubdomains {
 		// Remove wildcard prefixes (e.g., *.test.slackhq.com -> test.slackhq.com)
 		cleanSubdomain := s.urlProcessor.ConvertWildcardToDomain(subdomain)
 		if cleanSubdomain != "" {
-			cleanSubdomains = append(cleanSubdomains, cleanSubdomain)
+			// Validate the domain before adding it to the list
+			if s.urlProcessor.IsValidDomain(cleanSubdomain) {
+				cleanSubdomains = append(cleanSubdomains, cleanSubdomain)
+			} else {
+				invalidSubdomains = append(invalidSubdomains, cleanSubdomain)
+			}
 		}
 	}
 
-	logrus.Infof("Filtered %d wildcard subdomains, %d clean subdomains for domain %s",
-		len(allSubdomains)-len(cleanSubdomains), len(cleanSubdomains), domain)
+	logrus.Infof("Filtered %d wildcard subdomains, %d clean subdomains, %d invalid subdomains for domain %s",
+		len(allSubdomains)-len(cleanSubdomains)-len(invalidSubdomains), len(cleanSubdomains), len(invalidSubdomains), domain)
+
+	// Log some examples of invalid subdomains for debugging
+	if len(invalidSubdomains) > 0 {
+		examples := invalidSubdomains
+		if len(examples) > 5 {
+			examples = examples[:5]
+		}
+		logrus.Debugf("Examples of invalid subdomains filtered out: %v", examples)
+	}
 
 	// Filter subdomains using HTTPX probe if enabled and capture detailed responses
 	var filteredSubdomains []string
