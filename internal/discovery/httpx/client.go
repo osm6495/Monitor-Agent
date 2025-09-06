@@ -106,8 +106,6 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 		Debug:           c.config.Debug, // Use config debug setting
 		// Add retry configuration for better reliability
 		Retries: 2,
-		// Enable response capture for detailed information
-		StoreResponse: true,
 		OnResult: func(result runner.Result) {
 			// Process result immediately as it arrives
 			probeResult := ProbeResult{
@@ -308,8 +306,6 @@ func (c *Client) ProbeDomainsWithDetails(ctx context.Context, domains []string) 
 		Debug:           c.config.Debug,
 		// Add retry configuration for better reliability
 		Retries: 2,
-		// Enable response capture for detailed information
-		StoreResponse: true,
 		OnResult: func(result runner.Result) {
 			// Process result immediately as it arrives
 			detailedResult := DetailedProbeResult{
