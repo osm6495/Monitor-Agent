@@ -106,6 +106,8 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 		Debug:           c.config.Debug, // Use config debug setting
 		// Add retry configuration for better reliability
 		Retries: 2,
+		// Enable response capture for detailed information
+		StoreResponse: true,
 		OnResult: func(result runner.Result) {
 			// Process result immediately as it arrives
 			probeResult := ProbeResult{
@@ -214,7 +216,6 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 			Debug:           c.config.Debug,
 			// Add retry configuration for better reliability
 			Retries: 2,
-			// Add user agent for better compatibility
 			OnResult: func(result runner.Result) {
 				// Process result immediately as it arrives
 				probeResult := ProbeResult{
@@ -307,6 +308,8 @@ func (c *Client) ProbeDomainsWithDetails(ctx context.Context, domains []string) 
 		Debug:           c.config.Debug,
 		// Add retry configuration for better reliability
 		Retries: 2,
+		// Enable response capture for detailed information
+		StoreResponse: true,
 		OnResult: func(result runner.Result) {
 			// Process result immediately as it arrives
 			detailedResult := DetailedProbeResult{
@@ -316,19 +319,39 @@ func (c *Client) ProbeDomainsWithDetails(ctx context.Context, domains []string) 
 			}
 
 			if result.StatusCode > 0 {
-				// Log basic result information without reflection
-				if c.config.Debug {
-					logrus.Debugf("HTTPX result for %s: StatusCode=%d", result.URL, result.StatusCode)
+				// Extract headers from the result
+				if result.ResponseHeaders != nil {
+					detailedResult.Headers = make(map[string]string)
+					for key, value := range result.ResponseHeaders {
+						if strValue, ok := value.(string); ok {
+							detailedResult.Headers[key] = strValue
+						} else {
+							// Convert non-string values to string
+							detailedResult.Headers[key] = fmt.Sprintf("%v", value)
+						}
+					}
 				}
 
-				// Try to extract additional information from the result
-				// Note: These fields may not exist in all versions of HTTPX
-				detailedResult.ResponseTime = 0 // Will be populated if available
+				// Extract response body
+				detailedResult.Body = result.ResponseBody
 
-				// Basic information logging
+				// Extract response time (convert from string to milliseconds)
+				if result.ResponseTime != "" {
+					if responseTime, err := time.ParseDuration(result.ResponseTime); err == nil {
+						detailedResult.ResponseTime = responseTime.Milliseconds()
+					}
+				}
+
+				// Extract additional information
+				detailedResult.ContentType = result.ContentType
+				detailedResult.Server = result.WebServer
+				detailedResult.Title = result.Title
+				detailedResult.Technologies = result.Technologies
+
+				// Log basic result information
 				if c.config.Debug {
-					logrus.Debugf("HTTPX result for %s: StatusCode=%d, Error=%s",
-						result.URL, result.StatusCode, result.Error)
+					logrus.Debugf("HTTPX result for %s: StatusCode=%d, Headers=%d, BodySize=%d, ResponseTime=%dms",
+						result.URL, result.StatusCode, len(detailedResult.Headers), len(detailedResult.Body), detailedResult.ResponseTime)
 				}
 			} else {
 				// Log detailed error information
@@ -430,7 +453,6 @@ func (c *Client) ProbeDomainsWithDetails(ctx context.Context, domains []string) 
 			Debug:           c.config.Debug,
 			// Add retry configuration for better reliability
 			Retries: 2,
-			// Add user agent for better compatibility
 			OnResult: func(result runner.Result) {
 				// Process result immediately as it arrives
 				detailedResult := DetailedProbeResult{
@@ -440,19 +462,39 @@ func (c *Client) ProbeDomainsWithDetails(ctx context.Context, domains []string) 
 				}
 
 				if result.StatusCode > 0 {
-					// Log basic result information without reflection
-					if c.config.Debug {
-						logrus.Debugf("HTTPX result for %s: StatusCode=%d", result.URL, result.StatusCode)
+					// Extract headers from the result
+					if result.ResponseHeaders != nil {
+						detailedResult.Headers = make(map[string]string)
+						for key, value := range result.ResponseHeaders {
+							if strValue, ok := value.(string); ok {
+								detailedResult.Headers[key] = strValue
+							} else {
+								// Convert non-string values to string
+								detailedResult.Headers[key] = fmt.Sprintf("%v", value)
+							}
+						}
 					}
 
-					// Try to extract additional information from the result
-					// Note: These fields may not exist in all versions of HTTPX
-					detailedResult.ResponseTime = 0 // Will be populated if available
+					// Extract response body
+					detailedResult.Body = result.ResponseBody
 
-					// Basic information logging
+					// Extract response time (convert from string to milliseconds)
+					if result.ResponseTime != "" {
+						if responseTime, err := time.ParseDuration(result.ResponseTime); err == nil {
+							detailedResult.ResponseTime = responseTime.Milliseconds()
+						}
+					}
+
+					// Extract additional information
+					detailedResult.ContentType = result.ContentType
+					detailedResult.Server = result.WebServer
+					detailedResult.Title = result.Title
+					detailedResult.Technologies = result.Technologies
+
+					// Log basic result information
 					if c.config.Debug {
-						logrus.Debugf("HTTPX result for %s: StatusCode=%d, Error=%s",
-							result.URL, result.StatusCode, result.Error)
+						logrus.Debugf("Second run HTTPX result for %s: StatusCode=%d, Headers=%d, BodySize=%d, ResponseTime=%dms",
+							result.URL, result.StatusCode, len(detailedResult.Headers), len(detailedResult.Body), detailedResult.ResponseTime)
 					}
 				} else {
 					// Log detailed error information
