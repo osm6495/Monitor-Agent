@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -386,16 +387,27 @@ func (s *MonitorService) discoverProgramAssets(ctx context.Context, program *dat
 		logrus.Debugf("Sample scope assets for program %s: %v", program.Name, scopeAssets[:sampleSize])
 	}
 
-	// Save in-scope assets as primary assets (only domain and wildcard types)
+	// Separate in-scope and out-of-scope assets
+	var inScopeAssets []*platforms.ScopeAsset
+	var outOfScopeAssets []*platforms.ScopeAsset
 	var primaryAssets []*database.Asset
+
 	for _, scopeAsset := range scopeAssets {
-		// Only save domain and wildcard type assets as primary assets
-		if scopeAsset.Type == "url" || scopeAsset.Type == "wildcard" {
-			dbAsset := scopeAsset.ConvertToDatabaseAsset(program.ID.String(), program.ProgramURL)
-			dbAsset.Source = "primary" // Mark as primary asset
-			primaryAssets = append(primaryAssets, dbAsset)
+		if scopeAsset.EligibleForSubmission {
+			inScopeAssets = append(inScopeAssets, scopeAsset)
+			// Only save domain and wildcard type assets as primary assets
+			if scopeAsset.Type == "url" || scopeAsset.Type == "wildcard" {
+				dbAsset := scopeAsset.ConvertToDatabaseAsset(program.ID.String(), program.ProgramURL)
+				dbAsset.Source = "primary" // Mark as primary asset
+				primaryAssets = append(primaryAssets, dbAsset)
+			} else {
+				logrus.Debugf("Skipping non-domain asset type '%s' for program %s: %s", scopeAsset.Type, program.Name, scopeAsset.URL)
+			}
 		} else {
-			logrus.Debugf("Skipping non-domain asset type '%s' for program %s: %s", scopeAsset.Type, program.Name, scopeAsset.URL)
+			// Only include URL and wildcard type assets for out-of-scope filtering
+			if scopeAsset.Type == "url" || scopeAsset.Type == "wildcard" {
+				outOfScopeAssets = append(outOfScopeAssets, scopeAsset)
+			}
 		}
 	}
 
@@ -411,13 +423,15 @@ func (s *MonitorService) discoverProgramAssets(ctx context.Context, program *dat
 		logrus.Infof("No primary assets to save for program %s (filtered from %d total scope assets)", program.Name, len(scopeAssets))
 	}
 
+	logrus.Infof("Found %d in-scope assets and %d out-of-scope assets for program %s", len(inScopeAssets), len(outOfScopeAssets), program.Name)
+
 	// Extract unique domains for ChaosDB discovery
 	domains := s.extractUniqueDomains(scopeAssets)
 	logrus.Infof("Extracted %d unique domains for ChaosDB discovery: %v", len(domains), domains)
 
 	// Discover additional subdomains using ChaosDB (secondary assets)
 	if len(domains) > 0 {
-		secondaryAssets, err := s.discoverWithChaosDB(ctx, program.ID, program.ProgramURL, domains)
+		secondaryAssets, err := s.discoverWithChaosDB(ctx, program.ID, program.ProgramURL, domains, outOfScopeAssets)
 		if err != nil {
 			logrus.Warnf("ChaosDB discovery failed for program %s: %v", program.Name, err)
 			// Continue processing even if ChaosDB fails
@@ -438,7 +452,7 @@ func (s *MonitorService) discoverProgramAssets(ctx context.Context, program *dat
 }
 
 // discoverWithChaosDB discovers additional subdomains using ChaosDB and filters them with HTTPX probe
-func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid.UUID, programURL string, domains []string) ([]*database.Asset, error) {
+func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid.UUID, programURL string, domains []string, outOfScopeAssets []*platforms.ScopeAsset) ([]*database.Asset, error) {
 	// Add panic recovery
 	defer func() {
 		if r := recover(); r != nil {
@@ -460,11 +474,11 @@ func (s *MonitorService) discoverWithChaosDB(ctx context.Context, programID uuid
 	logrus.Infof("Starting ChaosDB discovery for %d domains: %v", len(domains), domains)
 
 	// Process domains sequentially to respect ChaosDB rate limits
-	return s.processDomainsSequentially(discoveryCtx, programID, programURL, domains)
+	return s.processDomainsSequentially(discoveryCtx, programID, programURL, domains, outOfScopeAssets)
 }
 
 // processDomainsSequentially processes domains one by one to respect rate limits
-func (s *MonitorService) processDomainsSequentially(ctx context.Context, programID uuid.UUID, programURL string, domains []string) ([]*database.Asset, error) {
+func (s *MonitorService) processDomainsSequentially(ctx context.Context, programID uuid.UUID, programURL string, domains []string, outOfScopeAssets []*platforms.ScopeAsset) ([]*database.Asset, error) {
 	var allAssets []*database.Asset
 	totalSubdomains := 0
 	successfulDomains := 0
@@ -474,7 +488,7 @@ func (s *MonitorService) processDomainsSequentially(ctx context.Context, program
 		logrus.Infof("Processing domain %d/%d: %s", i+1, len(domains), domain)
 
 		// Process single domain with HTTPX probe
-		domainAssets, err := s.processSingleDomain(ctx, programID, programURL, domain, i+1, len(domains))
+		domainAssets, err := s.processSingleDomain(ctx, programID, programURL, domain, i+1, len(domains), outOfScopeAssets)
 		if err != nil {
 			logrus.Warnf("Failed to process domain %s: %v", domain, err)
 			errorCount++
@@ -498,7 +512,7 @@ func (s *MonitorService) processDomainsSequentially(ctx context.Context, program
 }
 
 // processSingleDomain processes a single domain using ChaosDB and HTTPX probe
-func (s *MonitorService) processSingleDomain(ctx context.Context, programID uuid.UUID, programURL string, domain string, domainIndex int, totalDomains int) ([]*database.Asset, error) {
+func (s *MonitorService) processSingleDomain(ctx context.Context, programID uuid.UUID, programURL string, domain string, domainIndex int, totalDomains int, outOfScopeAssets []*platforms.ScopeAsset) ([]*database.Asset, error) {
 	// Add panic recovery
 	defer func() {
 		if r := recover(); r != nil {
@@ -623,9 +637,20 @@ func (s *MonitorService) processSingleDomain(ctx context.Context, programID uuid
 		filteredSubdomains = allSubdomains
 	}
 
+	// Filter out subdomains that match out-of-scope assets
+	if len(outOfScopeAssets) > 0 {
+		filteredSubdomains = s.filterOutOfScopeSubdomains(filteredSubdomains, outOfScopeAssets)
+		logrus.Infof("After out-of-scope filtering: %d subdomains remain for domain %s", len(filteredSubdomains), domain)
+	}
+
 	// Convert filtered subdomains to assets
 	var assets []*database.Asset
 	for _, subdomain := range filteredSubdomains {
+		// Skip empty subdomains
+		if strings.TrimSpace(subdomain) == "" {
+			continue
+		}
+
 		// Create full URL
 		url := fmt.Sprintf("https://%s", subdomain)
 
@@ -659,8 +684,9 @@ func (s *MonitorService) processSingleDomain(ctx context.Context, programID uuid
 		if err := s.assetRepo.CreateAssets(ctx, assets); err != nil {
 			logrus.Warnf("Failed to save ChaosDB assets for domain %s: %v", domain, err)
 			// Don't return error, just log warning to continue processing
+			// Skip saving detailed responses since assets weren't saved
 		} else {
-			// Save detailed HTTPX responses if we have them
+			// Save detailed HTTPX responses if we have them and assets were successfully saved
 			if len(detailedResults) > 0 {
 				s.saveDetailedResponses(ctx, assets, detailedResults)
 			}
@@ -685,6 +711,11 @@ func (s *MonitorService) extractUniqueDomains(scopeAssets []*platforms.ScopeAsse
 	for _, asset := range scopeAssets {
 		// Only process domain and wildcard type assets for ChaosDB discovery
 		if asset.Type != "url" && asset.Type != "wildcard" {
+			continue
+		}
+
+		// Skip empty URLs
+		if strings.TrimSpace(asset.URL) == "" {
 			continue
 		}
 
@@ -887,6 +918,12 @@ func (s *MonitorService) saveDetailedResponses(ctx context.Context, assets []*da
 			continue
 		}
 
+		// Skip if asset doesn't have a valid ID (wasn't saved to database)
+		if asset.ID == uuid.Nil {
+			logrus.Debugf("Asset for URL %s has no valid ID, skipping response save", result.URL)
+			continue
+		}
+
 		// Convert headers to JSON string
 		var headersJSON string
 		if len(result.Headers) > 0 {
@@ -920,6 +957,52 @@ func (s *MonitorService) saveDetailedResponses(ctx context.Context, assets []*da
 	}
 
 	logrus.Infof("Saved %d detailed HTTPX responses to database", savedCount)
+}
+
+// filterOutOfScopeSubdomains filters out subdomains that match out-of-scope assets
+func (s *MonitorService) filterOutOfScopeSubdomains(subdomains []string, outOfScopeAssets []*platforms.ScopeAsset) []string {
+	var filteredSubdomains []string
+
+	for _, subdomain := range subdomains {
+		shouldExclude := false
+
+		// Create full URL for comparison
+		subdomainURL := fmt.Sprintf("https://%s", subdomain)
+
+		for _, outOfScopeAsset := range outOfScopeAssets {
+			if s.matchesOutOfScopeAsset(subdomainURL, outOfScopeAsset) {
+				logrus.Debugf("Excluding subdomain %s - matches out-of-scope asset: %s", subdomain, outOfScopeAsset.URL)
+				shouldExclude = true
+				break
+			}
+		}
+
+		if !shouldExclude {
+			filteredSubdomains = append(filteredSubdomains, subdomain)
+		}
+	}
+
+	return filteredSubdomains
+}
+
+// matchesOutOfScopeAsset checks if a subdomain URL matches an out-of-scope asset
+func (s *MonitorService) matchesOutOfScopeAsset(subdomainURL string, outOfScopeAsset *platforms.ScopeAsset) bool {
+	switch outOfScopeAsset.Type {
+	case "url":
+		// For URL assets, check if the subdomain URL exactly matches or is a subdomain of the out-of-scope URL
+		return s.urlProcessor.IsSubdomainOf(subdomainURL, outOfScopeAsset.URL)
+	case "wildcard":
+		// For wildcard assets, check if the subdomain matches the wildcard pattern
+		// Use OriginalPattern if available, otherwise fall back to URL
+		pattern := outOfScopeAsset.OriginalPattern
+		if pattern == "" {
+			pattern = outOfScopeAsset.URL
+		}
+		return s.urlProcessor.MatchesWildcard(subdomainURL, pattern)
+	default:
+		// For other types, don't filter
+		return false
+	}
 }
 
 // ProgramStats represents program statistics

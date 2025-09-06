@@ -201,12 +201,10 @@ func (c *Client) GetProgramScope(ctx context.Context, programURL string) ([]*Sco
 
 	var scopeAssets []*ScopeAsset
 	for _, scope := range scopeResp.Data {
-		// Only include in-scope assets that are eligible for submission
-		if scope.Attributes.EligibleForSubmission {
-			asset := c.parseScopeAsset(scope.Attributes)
-			if asset != nil {
-				scopeAssets = append(scopeAssets, asset)
-			}
+		// Include both in-scope and out-of-scope assets
+		asset := c.parseScopeAsset(scope.Attributes)
+		if asset != nil {
+			scopeAssets = append(scopeAssets, asset)
 		}
 	}
 
@@ -236,9 +234,10 @@ func (c *Client) parseScopeAsset(attr ScopeAttributes) *ScopeAsset {
 	switch attr.AssetType {
 	case "URL":
 		return &ScopeAsset{
-			URL:    normalizedURL,
-			Domain: c.extractDomain(normalizedURL),
-			Type:   "url",
+			URL:                   normalizedURL,
+			Domain:                c.extractDomain(normalizedURL),
+			Type:                  "url",
+			EligibleForSubmission: attr.EligibleForSubmission,
 		}
 	case "WILDCARD":
 		// Convert wildcard to base domain for ChaosDB discovery
@@ -253,22 +252,26 @@ func (c *Client) parseScopeAsset(attr ScopeAttributes) *ScopeAsset {
 			}
 		}
 		return &ScopeAsset{
-			URL:    normalizedDomain,
-			Domain: domain,
-			Type:   "wildcard",
+			URL:                   normalizedDomain,
+			Domain:                domain,
+			Type:                  "wildcard",
+			EligibleForSubmission: attr.EligibleForSubmission,
+			OriginalPattern:       assetIdentifier, // Store original wildcard pattern
 		}
 	case "CIDR":
 		// Handle CIDR ranges (for future implementation)
 		return &ScopeAsset{
-			URL:    assetIdentifier,
-			Domain: assetIdentifier,
-			Type:   "cidr",
+			URL:                   assetIdentifier,
+			Domain:                assetIdentifier,
+			Type:                  "cidr",
+			EligibleForSubmission: attr.EligibleForSubmission,
 		}
 	default:
 		return &ScopeAsset{
-			URL:    normalizedURL,
-			Domain: c.extractDomain(normalizedURL),
-			Type:   attr.AssetType,
+			URL:                   normalizedURL,
+			Domain:                c.extractDomain(normalizedURL),
+			Type:                  attr.AssetType,
+			EligibleForSubmission: attr.EligibleForSubmission,
 		}
 	}
 }

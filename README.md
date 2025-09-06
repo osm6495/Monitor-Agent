@@ -6,6 +6,7 @@ A comprehensive Golang application for monitoring bug bounty programs from multi
 
 - **Multi-Platform Support**: Integrates with HackerOne and BugCrowd APIs
 - **Asset Discovery**: Uses ChaosDB to discover additional subdomains and assets
+- **Out-of-Scope Filtering**: Automatically filters ChaosDB results against program out-of-scope assets
 - **Database Storage**: PostgreSQL database for persistent storage
 - **Rate Limiting**: Built-in rate limiting to respect API limits
 - **One-off Scanning**: Performs single scans with full state management
@@ -244,6 +245,7 @@ Since this application performs one-off scans, you can schedule it using:
   - Only saves domains that actually exist and respond to HTTP requests
   - **Robust Timeout Handling**: 15-second per-domain timeout with graceful fallback
   - **Crash Prevention**: Comprehensive panic recovery and error handling
+- **Out-of-Scope Filtering**: Automatically excludes ChaosDB results that match program out-of-scope assets (URLs and wildcards)
 
 ## Processing Flow
 
@@ -251,9 +253,11 @@ The application follows this optimized flow for asset discovery:
 
 1. **Program Discovery**: Fetch all public programs from configured platforms
 2. **Primary Asset Extraction**: Extract domain and wildcard assets from program scope
-3. **Per-Domain ChaosDB Discovery**: For each domain, discover subdomains using ChaosDB
-4. **Immediate HTTPX Probing**: Run concurrent HTTPX probes on each domain's subdomains immediately after discovery
-5. **Database Storage**: Save verified assets to database after each domain's processing
+3. **Out-of-Scope Asset Collection**: Collect out-of-scope assets (URLs and wildcards) for filtering
+4. **Per-Domain ChaosDB Discovery**: For each domain, discover subdomains using ChaosDB
+5. **Out-of-Scope Filtering**: Filter ChaosDB results against program out-of-scope assets
+6. **Immediate HTTPX Probing**: Run concurrent HTTPX probes on filtered subdomains
+7. **Database Storage**: Save verified assets to database after each domain's processing
 
 ## Database Schema
 

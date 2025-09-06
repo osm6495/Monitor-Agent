@@ -287,6 +287,47 @@ func (up *URLProcessor) extractSubdomainManually(urlStr string) string {
 	return parts[0]
 }
 
+// IsSubdomainOf checks if a URL is a subdomain of another URL
+func (up *URLProcessor) IsSubdomainOf(subdomainURL, parentURL string) bool {
+	// Extract domains from both URLs
+	subdomain, err := up.ExtractDomain(subdomainURL)
+	if err != nil {
+		return false
+	}
+
+	parent, err := up.ExtractDomain(parentURL)
+	if err != nil {
+		return false
+	}
+
+	// Check if subdomain ends with the parent domain
+	// e.g., "api.example.com" is a subdomain of "example.com"
+	return strings.HasSuffix(subdomain, "."+parent) || subdomain == parent
+}
+
+// MatchesWildcard checks if a URL matches a wildcard pattern
+func (up *URLProcessor) MatchesWildcard(url, wildcardPattern string) bool {
+	// Extract domain from URL
+	domain, err := up.ExtractDomain(url)
+	if err != nil {
+		return false
+	}
+
+	// Convert wildcard pattern to regex
+	// e.g., "*.example.com" becomes "^.*\.example\.com$"
+	pattern := strings.ReplaceAll(wildcardPattern, ".", "\\.")
+	pattern = strings.ReplaceAll(pattern, "*", ".*")
+	pattern = "^" + pattern + "$"
+
+	// Create regex and test
+	regex, err := regexp.Compile(pattern)
+	if err != nil {
+		return false
+	}
+
+	return regex.MatchString(domain)
+}
+
 // GetCommonSubdomains returns a list of common subdomains to test
 func (up *URLProcessor) GetCommonSubdomains() []string {
 	return []string{

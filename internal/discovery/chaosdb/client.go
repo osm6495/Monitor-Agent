@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -143,6 +144,11 @@ func (c *Client) DiscoverDomainsBulk(ctx context.Context, domains []string) (*Bu
 	// Clean and normalize domains
 	var cleanDomains []string
 	for _, domain := range domains {
+		// Skip empty domains
+		if strings.TrimSpace(domain) == "" {
+			continue
+		}
+
 		cleanDomain, err := c.urlProcessor.ExtractDomain(domain)
 		if err != nil {
 			logrus.Warnf("Failed to extract domain from %s: %v", domain, err)

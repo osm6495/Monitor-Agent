@@ -20,9 +20,9 @@ func TestNewClient(t *testing.T) {
 			config: nil,
 			want: &Client{
 				config: &ProbeConfig{
-					Timeout:         15 * time.Second,
+					Timeout:         30 * time.Second,
 					Concurrency:     25,
-					RateLimit:       100,
+					RateLimit:       50,
 					UserAgent:       "Monitor-Agent/1.0",
 					FollowRedirects: true,
 					MaxRedirects:    3,
@@ -353,8 +353,8 @@ func TestProbeDomainsWithDetails_ValidDomains(t *testing.T) {
 	assert.True(t, result.Exists)
 	assert.Equal(t, 200, result.StatusCode)
 	assert.Empty(t, result.Error)
-	// These fields are placeholders in the current implementation
-	assert.Equal(t, int64(0), result.ResponseTime)
+	// Response time should be a reasonable value for a real HTTP request
+	assert.Greater(t, result.ResponseTime, int64(0))
 }
 
 func TestProbeDomainsWithDetails_InvalidDomains(t *testing.T) {

@@ -491,3 +491,149 @@ func TestURLProcessor_IsValidDomain(t *testing.T) {
 		})
 	}
 }
+
+func TestURLProcessor_IsSubdomainOf(t *testing.T) {
+	up := NewURLProcessor()
+
+	tests := []struct {
+		name      string
+		subdomain string
+		parent    string
+		expected  bool
+	}{
+		{
+			name:      "exact match",
+			subdomain: "https://example.com",
+			parent:    "https://example.com",
+			expected:  true,
+		},
+		{
+			name:      "subdomain match",
+			subdomain: "https://api.example.com",
+			parent:    "https://example.com",
+			expected:  true,
+		},
+		{
+			name:      "nested subdomain match",
+			subdomain: "https://v1.api.example.com",
+			parent:    "https://example.com",
+			expected:  true,
+		},
+		{
+			name:      "different domain",
+			subdomain: "https://api.example.com",
+			parent:    "https://test.com",
+			expected:  false,
+		},
+		{
+			name:      "subdomain of different domain",
+			subdomain: "https://api.example.com",
+			parent:    "https://api.test.com",
+			expected:  false,
+		},
+		{
+			name:      "invalid subdomain URL",
+			subdomain: "invalid-url",
+			parent:    "https://example.com",
+			expected:  false,
+		},
+		{
+			name:      "invalid parent URL",
+			subdomain: "https://api.example.com",
+			parent:    "invalid-url",
+			expected:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := up.IsSubdomainOf(tt.subdomain, tt.parent)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestURLProcessor_MatchesWildcard(t *testing.T) {
+	up := NewURLProcessor()
+
+	tests := []struct {
+		name     string
+		url      string
+		pattern  string
+		expected bool
+	}{
+		{
+			name:     "simple wildcard match",
+			url:      "https://api.example.com",
+			pattern:  "*.example.com",
+			expected: true,
+		},
+		{
+			name:     "wildcard match with nested subdomain",
+			url:      "https://v1.api.example.com",
+			pattern:  "*.example.com",
+			expected: true,
+		},
+		{
+			name:     "wildcard match with www",
+			url:      "https://www.example.com",
+			pattern:  "*.example.com",
+			expected: true,
+		},
+		{
+			name:     "wildcard no match - different domain",
+			url:      "https://api.test.com",
+			pattern:  "*.example.com",
+			expected: false,
+		},
+		{
+			name:     "wildcard no match - exact domain",
+			url:      "https://example.com",
+			pattern:  "*.example.com",
+			expected: false,
+		},
+		{
+			name:     "complex wildcard pattern",
+			url:      "https://api.staging.example.com",
+			pattern:  "*.staging.example.com",
+			expected: true,
+		},
+		{
+			name:     "nested wildcard - test.test.sub.domain matches *.sub.domain",
+			url:      "https://test.test.sub.domain.com",
+			pattern:  "*.sub.domain.com",
+			expected: true,
+		},
+		{
+			name:     "nested wildcard - test.sub.domain matches *.sub.domain",
+			url:      "https://test.sub.domain.com",
+			pattern:  "*.sub.domain.com",
+			expected: true,
+		},
+		{
+			name:     "nested wildcard - sub.domain does not match *.sub.domain",
+			url:      "https://sub.domain.com",
+			pattern:  "*.sub.domain.com",
+			expected: false,
+		},
+		{
+			name:     "invalid URL",
+			url:      "invalid-url",
+			pattern:  "*.example.com",
+			expected: false,
+		},
+		{
+			name:     "invalid pattern",
+			url:      "https://api.example.com",
+			pattern:  "[invalid-pattern",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := up.MatchesWildcard(tt.url, tt.pattern)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

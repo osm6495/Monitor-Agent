@@ -53,10 +53,12 @@ func (a *HackerOneAdapter) GetProgramScope(ctx context.Context, programURL strin
 	assets := make([]*ScopeAsset, len(h1Assets))
 	for i, h1Asset := range h1Assets {
 		assets[i] = &ScopeAsset{
-			URL:       h1Asset.URL,
-			Domain:    h1Asset.Domain,
-			Subdomain: h1Asset.Subdomain,
-			Type:      h1Asset.Type,
+			URL:                   h1Asset.URL,
+			Domain:                h1Asset.Domain,
+			Subdomain:             h1Asset.Subdomain,
+			Type:                  h1Asset.Type,
+			EligibleForSubmission: h1Asset.EligibleForSubmission,
+			OriginalPattern:       h1Asset.OriginalPattern,
 		}
 	}
 	return assets, nil
@@ -104,10 +106,12 @@ func (a *BugCrowdAdapter) GetProgramScope(ctx context.Context, programURL string
 	assets := make([]*ScopeAsset, len(bcAssets))
 	for i, bcAsset := range bcAssets {
 		assets[i] = &ScopeAsset{
-			URL:       bcAsset.URL,
-			Domain:    bcAsset.Domain,
-			Subdomain: bcAsset.Subdomain,
-			Type:      bcAsset.Type,
+			URL:                   bcAsset.URL,
+			Domain:                bcAsset.Domain,
+			Subdomain:             bcAsset.Subdomain,
+			Type:                  bcAsset.Type,
+			EligibleForSubmission: bcAsset.EligibleForSubmission,
+			OriginalPattern:       bcAsset.OriginalPattern,
 		}
 	}
 	return assets, nil

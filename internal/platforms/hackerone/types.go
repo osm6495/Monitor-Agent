@@ -30,12 +30,14 @@ type Program struct {
 	LastUpdated time.Time `json:"last_updated"`
 }
 
-// ScopeAsset represents an in-scope asset for a bug bounty program
+// ScopeAsset represents a scope asset for a bug bounty program (both in-scope and out-of-scope)
 type ScopeAsset struct {
-	URL       string `json:"url"`
-	Domain    string `json:"domain"`
-	Subdomain string `json:"subdomain,omitempty"`
-	Type      string `json:"type"` // url, wildcard, etc.
+	URL                   string `json:"url"`
+	Domain                string `json:"domain"`
+	Subdomain             string `json:"subdomain,omitempty"`
+	Type                  string `json:"type"` // url, wildcard, etc.
+	EligibleForSubmission bool   `json:"eligible_for_submission"`
+	OriginalPattern       string `json:"original_pattern,omitempty"` // Original pattern for wildcards
 }
 
 // PlatformConfig holds configuration for a platform
