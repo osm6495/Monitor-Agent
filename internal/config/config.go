@@ -232,17 +232,17 @@ func Load() (*Config, error) {
 	// HTTPX configuration
 	httpxEnabled := getEnv("HTTPX_ENABLED", "true") == "true"
 
-	httpxTimeout, err := time.ParseDuration(getEnv("HTTPX_TIMEOUT", "15s"))
+	httpxTimeout, err := time.ParseDuration(getEnv("HTTPX_TIMEOUT", "30s"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid HTTPX_TIMEOUT: %w", err)
 	}
 
-	httpxConcurrency, err := strconv.Atoi(getEnv("HTTPX_CONCURRENCY", "100"))
+	httpxConcurrency, err := strconv.Atoi(getEnv("HTTPX_CONCURRENCY", "25"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid HTTPX_CONCURRENCY: %w", err)
 	}
 
-	httpxRateLimit, err := strconv.Atoi(getEnv("HTTPX_RATE_LIMIT", "100"))
+	httpxRateLimit, err := strconv.Atoi(getEnv("HTTPX_RATE_LIMIT", "50"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid HTTPX_RATE_LIMIT: %w", err)
 	}

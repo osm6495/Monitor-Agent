@@ -47,9 +47,9 @@ discovery:
   # HTTPX Probe Configuration
   httpx:
     enabled: true
-    timeout: "15s"
-    concurrency: 100
-    rate_limit: 100
+    timeout: "30s"  # Increased timeout for better reliability
+    concurrency: 25  # Reduced from 100 to prevent resource exhaustion
+    rate_limit: 50   # Reduced rate limit to be more conservative
     follow_redirects: true
     max_redirects: 3
     debug: false

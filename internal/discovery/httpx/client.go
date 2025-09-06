@@ -55,9 +55,9 @@ type Client struct {
 func NewClient(config *ProbeConfig) *Client {
 	if config == nil {
 		config = &ProbeConfig{
-			Timeout:         15 * time.Second,
+			Timeout:         30 * time.Second,
 			Concurrency:     25,
-			RateLimit:       100,
+			RateLimit:       50,
 			UserAgent:       "Monitor-Agent/1.0",
 			FollowRedirects: true,
 			MaxRedirects:    3,
@@ -90,7 +90,7 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 
 	logrus.Infof("Creating HTTPX runner with %d URLs", len(urls))
 
-	// Create HTTPX runner options
+	// Create HTTPX runner options with more conservative settings for reliability
 	options := &runner.Options{
 		InputTargetHost: urls,
 		RateLimit:       c.config.RateLimit,
@@ -104,6 +104,8 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 		CSVOutput:       false,
 		Verbose:         c.config.Debug, // Use config debug setting
 		Debug:           c.config.Debug, // Use config debug setting
+		// Add retry configuration for better reliability
+		Retries: 2,
 		OnResult: func(result runner.Result) {
 			// Process result immediately as it arrives
 			probeResult := ProbeResult{
@@ -196,7 +198,7 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 		// Try to process missing URLs with a second HTTPX run
 		logrus.Infof("Attempting to process %d missing URLs with second HTTPX run", len(missingURLs))
 
-		// Create a second HTTPX runner for missing URLs
+		// Create a second HTTPX runner for missing URLs with more conservative settings
 		missingOptions := &runner.Options{
 			InputTargetHost: missingURLs,
 			RateLimit:       c.config.RateLimit,
@@ -210,6 +212,9 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 			CSVOutput:       false,
 			Verbose:         c.config.Debug,
 			Debug:           c.config.Debug,
+			// Add retry configuration for better reliability
+			Retries: 2,
+			// Add user agent for better compatibility
 			OnResult: func(result runner.Result) {
 				// Process result immediately as it arrives
 				probeResult := ProbeResult{
@@ -286,7 +291,7 @@ func (c *Client) ProbeDomainsWithDetails(ctx context.Context, domains []string) 
 
 	logrus.Infof("Creating HTTPX runner with %d URLs for detailed probing", len(urls))
 
-	// Create HTTPX runner options
+	// Create HTTPX runner options with more conservative settings for reliability
 	options := &runner.Options{
 		InputTargetHost: urls,
 		RateLimit:       c.config.RateLimit,
@@ -300,6 +305,8 @@ func (c *Client) ProbeDomainsWithDetails(ctx context.Context, domains []string) 
 		CSVOutput:       false,
 		Verbose:         c.config.Debug,
 		Debug:           c.config.Debug,
+		// Add retry configuration for better reliability
+		Retries: 2,
 		OnResult: func(result runner.Result) {
 			// Process result immediately as it arrives
 			detailedResult := DetailedProbeResult{
@@ -388,30 +395,97 @@ func (c *Client) ProbeDomainsWithDetails(ctx context.Context, domains []string) 
 	// Log detailed results analysis
 	logrus.Infof("Detailed HTTPX enumeration completed. Results collected: %d/%d", len(results), len(urls))
 
-	// Check if we're missing results and log details
-	if len(results) < len(urls) {
-		missingCount := len(urls) - len(results)
-		logrus.Warnf("HTTPX enumeration incomplete: %d/%d URLs processed, %d missing", len(results), len(urls), missingCount)
+	// Check if we're missing any URLs
+	processedURLs := make(map[string]bool)
+	for _, result := range results {
+		processedURLs[result.URL] = true
+	}
 
-		// Log some missing URLs for debugging (limit to first 10)
-		processedURLs := make(map[string]bool)
-		for _, result := range results {
-			processedURLs[result.URL] = true
+	missingURLs := []string{}
+	for _, url := range urls {
+		if !processedURLs[url] {
+			missingURLs = append(missingURLs, url)
 		}
+	}
 
-		missingURLs := []string{}
-		for _, url := range urls {
-			if !processedURLs[url] {
-				missingURLs = append(missingURLs, url)
-				if len(missingURLs) >= 10 {
-					break
+	if len(missingURLs) > 0 {
+		logrus.Warnf("Missing results for %d URLs: %v", len(missingURLs), missingURLs)
+
+		// Try to process missing URLs with a second HTTPX run
+		logrus.Infof("Attempting to process %d missing URLs with second HTTPX run", len(missingURLs))
+
+		// Create a second HTTPX runner for missing URLs with more conservative settings
+		missingOptions := &runner.Options{
+			InputTargetHost: missingURLs,
+			RateLimit:       c.config.RateLimit,
+			Threads:         c.config.Concurrency,
+			Timeout:         int(c.config.Timeout.Seconds()),
+			FollowRedirects: c.config.FollowRedirects,
+			MaxRedirects:    c.config.MaxRedirects,
+			Silent:          true,
+			NoColor:         true,
+			JSONOutput:      false,
+			CSVOutput:       false,
+			Verbose:         c.config.Debug,
+			Debug:           c.config.Debug,
+			// Add retry configuration for better reliability
+			Retries: 2,
+			// Add user agent for better compatibility
+			OnResult: func(result runner.Result) {
+				// Process result immediately as it arrives
+				detailedResult := DetailedProbeResult{
+					URL:        result.URL,
+					Exists:     result.StatusCode > 0,
+					StatusCode: result.StatusCode,
 				}
-			}
+
+				if result.StatusCode > 0 {
+					// Log basic result information without reflection
+					if c.config.Debug {
+						logrus.Debugf("HTTPX result for %s: StatusCode=%d", result.URL, result.StatusCode)
+					}
+
+					// Try to extract additional information from the result
+					// Note: These fields may not exist in all versions of HTTPX
+					detailedResult.ResponseTime = 0 // Will be populated if available
+
+					// Basic information logging
+					if c.config.Debug {
+						logrus.Debugf("HTTPX result for %s: StatusCode=%d, Error=%s",
+							result.URL, result.StatusCode, result.Error)
+					}
+				} else {
+					// Log detailed error information
+					if result.Error != "" {
+						detailedResult.Error = result.Error
+						logrus.Debugf("HTTPX error for %s: %s", result.URL, result.Error)
+					} else {
+						detailedResult.Error = "Domain does not exist or is unreachable"
+					}
+				}
+
+				// Thread-safe append to results
+				mu.Lock()
+				results = append(results, detailedResult)
+				currentCount := len(results)
+				mu.Unlock()
+
+				logrus.Debugf("Second run detailed result %d/%d: %s (status: %d, exists: %v)",
+					currentCount, len(urls), result.URL, result.StatusCode, detailedResult.Exists)
+			},
 		}
 
-		if len(missingURLs) > 0 {
-			logrus.Warnf("Sample of missing URLs: %v", missingURLs)
+		missingRunner, err := runner.New(missingOptions)
+		if err != nil {
+			logrus.Errorf("Failed to create second HTTPX runner: %v", err)
+		} else {
+			defer missingRunner.Close()
+			logrus.Infof("Starting second HTTPX run for %d missing URLs", len(missingURLs))
+			missingRunner.RunEnumeration()
+			logrus.Infof("Second HTTPX run completed. Total results: %d/%d", len(results), len(urls))
 		}
+	} else {
+		logrus.Infof("All URLs processed successfully")
 	}
 
 	// Log final summary
@@ -420,6 +494,12 @@ func (c *Client) ProbeDomainsWithDetails(ctx context.Context, domains []string) 
 		if result.Exists {
 			existingCount++
 		}
+	}
+
+	// Final check for any remaining missing URLs
+	finalMissingCount := len(urls) - len(results)
+	if finalMissingCount > 0 {
+		logrus.Warnf("HTTPX enumeration incomplete: %d/%d URLs processed, %d missing", len(results), len(urls), finalMissingCount)
 	}
 
 	logrus.Infof("Detailed HTTPX probe completed: %d/%d domains exist (collected %d results)",
