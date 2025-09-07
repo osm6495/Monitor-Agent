@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/monitor-agent/internal/database"
 	"github.com/monitor-agent/internal/utils"
 	"github.com/projectdiscovery/httpx/runner"
 	"github.com/sirupsen/logrus"
@@ -388,6 +390,29 @@ func (c *Client) convertDomainsToURLs(domains []string) []string {
 			domainName = strings.TrimPrefix(cleanDomain, "https://")
 		}
 
+		// Remove path and query parameters for domain validation
+		if idx := strings.Index(domainName, "/"); idx != -1 {
+			domainName = domainName[:idx]
+		}
+		if idx := strings.Index(domainName, "?"); idx != -1 {
+			domainName = domainName[:idx]
+		}
+		if idx := strings.Index(domainName, ":"); idx != -1 {
+			domainName = domainName[:idx]
+		}
+
+		// Skip wildcard domains
+		if strings.Contains(domainName, "*") {
+			invalidDomains = append(invalidDomains, domainName)
+			continue
+		}
+
+		// Skip domains that are too short or contain invalid characters
+		if len(domainName) < 3 || strings.ContainsAny(domainName, " \t\n\r") {
+			invalidDomains = append(invalidDomains, domainName)
+			continue
+		}
+
 		// Validate domain before adding to URLs
 		if !c.urlProcessor.IsValidDomain(domainName) {
 			invalidDomains = append(invalidDomains, domainName)
@@ -467,4 +492,106 @@ func (c *Client) ExtractDomainFromURL(urlStr string) string {
 	}
 
 	return strings.TrimSpace(urlStr)
+}
+
+// FormatProbeResults formats probe results for output with SUCCESS/FAILED status
+func (c *Client) FormatProbeResults(results []ProbeResult, showFailures bool) []string {
+	var formatted []string
+
+	for _, result := range results {
+		if result.Exists {
+			// Only show successful results without [SUCCESS] suffix
+			formatted = append(formatted, result.URL)
+		} else if showFailures {
+			// Show failures with [FAILED] suffix if requested
+			formatted = append(formatted, fmt.Sprintf("%s [FAILED]", result.URL))
+		}
+	}
+
+	return formatted
+}
+
+// IsValidURLForDatabase checks if a URL is valid for saving to database
+func (c *Client) IsValidURLForDatabase(url string) bool {
+	// Extract domain from URL
+	domain := c.ExtractDomainFromURL(url)
+	if domain == "" {
+		return false
+	}
+
+	// Check if domain contains wildcards
+	if strings.Contains(domain, "*") {
+		return false
+	}
+
+	// Check if domain is valid using URL processor
+	return c.urlProcessor.IsValidDomain(domain)
+}
+
+// SaveSuccessfulProbeResultsAsAssets saves successful probe results as assets to the database
+func (c *Client) SaveSuccessfulProbeResultsAsAssets(ctx context.Context, results []ProbeResult, programID uuid.UUID, programURL string, assetRepo *database.AssetRepository) error {
+	var assets []*database.Asset
+
+	for _, result := range results {
+		// Only process successful results
+		if !result.Exists {
+			continue
+		}
+
+		// Validate URL before saving
+		if !c.IsValidURLForDatabase(result.URL) {
+			logrus.Debugf("Skipping invalid URL for database: %s", result.URL)
+			continue
+		}
+
+		// Extract domain and subdomain
+		domain := c.ExtractDomainFromURL(result.URL)
+		if domain == "" {
+			logrus.Debugf("Failed to extract domain from URL: %s", result.URL)
+			continue
+		}
+
+		// Extract subdomain
+		subdomain := ""
+		if domain != result.URL {
+			// Remove protocol and path to get just the hostname
+			hostname := strings.TrimPrefix(result.URL, "https://")
+			hostname = strings.TrimPrefix(hostname, "http://")
+			if idx := strings.Index(hostname, "/"); idx != -1 {
+				hostname = hostname[:idx]
+			}
+			if idx := strings.Index(hostname, ":"); idx != -1 {
+				hostname = hostname[:idx]
+			}
+
+			// If hostname is different from domain, it's a subdomain
+			if hostname != domain {
+				subdomain = hostname
+			}
+		}
+
+		asset := &database.Asset{
+			ProgramID:  programID,
+			ProgramURL: programURL,
+			URL:        result.URL,
+			Domain:     domain,
+			Subdomain:  subdomain,
+			Status:     "active",
+			Source:     "httpx_probe", // Mark as httpx probe result
+		}
+
+		assets = append(assets, asset)
+	}
+
+	// Save assets to database if any were created
+	if len(assets) > 0 {
+		if err := assetRepo.CreateAssets(ctx, assets); err != nil {
+			return fmt.Errorf("failed to save httpx probe assets: %w", err)
+		}
+		logrus.Infof("Successfully saved %d httpx probe assets to database", len(assets))
+	} else {
+		logrus.Infof("No valid httpx probe assets to save")
+	}
+
+	return nil
 }

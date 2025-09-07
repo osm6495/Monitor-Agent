@@ -613,6 +613,17 @@ func (s *MonitorService) processSingleDomain(ctx context.Context, programID uuid
 			// Log probe results analysis
 			logrus.Infof("HTTPX probe returned %d results for %d subdomains", len(probeResults), len(cleanSubdomains))
 
+			// Save successful probe results as assets to database
+			if err := s.httpxClient.SaveSuccessfulProbeResultsAsAssets(httpxCtx, probeResults, programID, programURL, s.assetRepo); err != nil {
+				logrus.Warnf("Failed to save httpx probe results as assets for domain %s: %v", domain, err)
+			}
+
+			// Format and output probe results (only show successful ones)
+			formattedResults := s.httpxClient.FormatProbeResults(probeResults, false) // false = don't show failures
+			for _, result := range formattedResults {
+				fmt.Println(result) // Output successful URLs without [SUCCESS] suffix
+			}
+
 			// Extract existing subdomains from probe results
 			existingCount := 0
 			for _, result := range probeResults {
