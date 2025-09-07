@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"runtime"
 	"strings"
@@ -397,9 +396,14 @@ func (s *MonitorService) discoverProgramAssets(ctx context.Context, program *dat
 			inScopeAssets = append(inScopeAssets, scopeAsset)
 			// Only save domain and wildcard type assets as primary assets
 			if scopeAsset.Type == "url" || scopeAsset.Type == "wildcard" {
-				dbAsset := scopeAsset.ConvertToDatabaseAsset(program.ID.String(), program.ProgramURL)
-				dbAsset.Source = "primary" // Mark as primary asset
-				primaryAssets = append(primaryAssets, dbAsset)
+				// Filter out invalid URLs and wildcard URLs before saving
+				if s.isValidPrimaryAsset(scopeAsset) {
+					dbAsset := scopeAsset.ConvertToDatabaseAsset(program.ID.String(), program.ProgramURL)
+					dbAsset.Source = "primary" // Mark as primary asset
+					primaryAssets = append(primaryAssets, dbAsset)
+				} else {
+					logrus.Debugf("Filtered out invalid primary asset for program %s: %s (type: %s)", program.Name, scopeAsset.URL, scopeAsset.Type)
+				}
 			} else {
 				logrus.Debugf("Skipping non-domain asset type '%s' for program %s: %s", scopeAsset.Type, program.Name, scopeAsset.URL)
 			}
@@ -581,11 +585,10 @@ func (s *MonitorService) processSingleDomain(ctx context.Context, programID uuid
 		logrus.Debugf("Examples of invalid subdomains filtered out: %v", examples)
 	}
 
-	// Filter subdomains using HTTPX probe if enabled and capture detailed responses
+	// Filter subdomains using HTTPX probe if enabled (minimal probe - no detailed responses)
 	var filteredSubdomains []string
-	var detailedResults []httpx.DetailedProbeResult
 	if s.httpxClient != nil && len(cleanSubdomains) > 0 {
-		logrus.Infof("Starting detailed HTTPX probe to filter %d subdomains for domain %s", len(cleanSubdomains), domain)
+		logrus.Infof("Starting minimal HTTPX probe to filter %d subdomains for domain %s", len(cleanSubdomains), domain)
 		logrus.Debugf("HTTPX probe timeout set to %v", discoveryTimeout)
 
 		// Start HTTPX probe with progress logging
@@ -597,21 +600,22 @@ func (s *MonitorService) processSingleDomain(ctx context.Context, programID uuid
 		// Log the timeout being used
 		logrus.Infof("HTTPX probe timeout set to %v for domain %s", discoveryTimeout, domain)
 
-		detailedResults, err = s.httpxClient.ProbeDomainsWithDetails(httpxCtx, cleanSubdomains)
+		// Use minimal probe instead of detailed probe
+		probeResults, err := s.httpxClient.ProbeDomains(httpxCtx, cleanSubdomains)
 		httpxCancel()
 
 		probeDuration := time.Since(probeStart)
 
 		if err != nil {
-			logrus.Warnf("Detailed HTTPX probe failed after %v for domain %s, using all subdomains: %v", probeDuration, domain, err)
+			logrus.Warnf("HTTPX probe failed after %v for domain %s, using all subdomains: %v", probeDuration, domain, err)
 			filteredSubdomains = allSubdomains
 		} else {
-			// Log detailed results analysis
-			logrus.Infof("HTTPX probe returned %d results for %d subdomains", len(detailedResults), len(cleanSubdomains))
+			// Log probe results analysis
+			logrus.Infof("HTTPX probe returned %d results for %d subdomains", len(probeResults), len(cleanSubdomains))
 
-			// Extract existing subdomains from detailed results
+			// Extract existing subdomains from probe results
 			existingCount := 0
-			for _, result := range detailedResults {
+			for _, result := range probeResults {
 				if result.Exists {
 					existingCount++
 					// Extract domain from URL
@@ -622,14 +626,14 @@ func (s *MonitorService) processSingleDomain(ctx context.Context, programID uuid
 				}
 			}
 
-			logrus.Infof("Detailed HTTPX probe completed in %v for domain %s: %d/%d subdomains exist (captured %d detailed responses, %d existing)",
-				probeDuration, domain, len(filteredSubdomains), len(allSubdomains), len(detailedResults), existingCount)
+			logrus.Infof("HTTPX probe completed in %v for domain %s: %d/%d subdomains exist (%d existing)",
+				probeDuration, domain, len(filteredSubdomains), len(allSubdomains), existingCount)
 
 			// Warn if we got significantly fewer results than expected
-			if len(detailedResults) < len(cleanSubdomains) {
-				missingCount := len(cleanSubdomains) - len(detailedResults)
+			if len(probeResults) < len(cleanSubdomains) {
+				missingCount := len(cleanSubdomains) - len(probeResults)
 				logrus.Warnf("HTTPX probe incomplete for domain %s: %d/%d subdomains processed, %d missing",
-					domain, len(detailedResults), len(cleanSubdomains), missingCount)
+					domain, len(probeResults), len(cleanSubdomains), missingCount)
 			}
 		}
 	} else {
@@ -684,12 +688,8 @@ func (s *MonitorService) processSingleDomain(ctx context.Context, programID uuid
 		if err := s.assetRepo.CreateAssets(ctx, assets); err != nil {
 			logrus.Warnf("Failed to save ChaosDB assets for domain %s: %v", domain, err)
 			// Don't return error, just log warning to continue processing
-			// Skip saving detailed responses since assets weren't saved
 		} else {
-			// Save detailed HTTPX responses if we have them and assets were successfully saved
-			if len(detailedResults) > 0 {
-				s.saveDetailedResponses(ctx, assets, detailedResults)
-			}
+			logrus.Infof("Successfully saved %d ChaosDB assets for domain %s", len(assets), domain)
 		}
 	}
 
@@ -889,76 +889,6 @@ func (s *MonitorService) CheckSystemHealth(ctx context.Context) error {
 	return nil
 }
 
-// saveDetailedResponses saves detailed HTTPX responses to the database
-func (s *MonitorService) saveDetailedResponses(ctx context.Context, assets []*database.Asset, detailedResults []httpx.DetailedProbeResult) {
-	// Add panic recovery
-	defer func() {
-		if r := recover(); r != nil {
-			logrus.Errorf("saveDetailedResponses panicked: %v", r)
-		}
-	}()
-
-	// Create a map of URL to Asset for quick lookup
-	urlToAsset := make(map[string]*database.Asset)
-	for _, asset := range assets {
-		urlToAsset[asset.URL] = asset
-	}
-
-	// Save each detailed response
-	savedCount := 0
-	for _, result := range detailedResults {
-		if !result.Exists {
-			continue // Skip non-existing domains
-		}
-
-		// Find the corresponding asset
-		asset, exists := urlToAsset[result.URL]
-		if !exists {
-			logrus.Debugf("No corresponding asset found for URL: %s", result.URL)
-			continue
-		}
-
-		// Skip if asset doesn't have a valid ID (wasn't saved to database)
-		if asset.ID == uuid.Nil {
-			logrus.Debugf("Asset for URL %s has no valid ID, skipping response save", result.URL)
-			continue
-		}
-
-		// Convert headers to JSON string
-		var headersJSON string
-		if len(result.Headers) > 0 {
-			if headersBytes, err := json.Marshal(result.Headers); err == nil {
-				headersJSON = string(headersBytes)
-			} else {
-				logrus.Warnf("Failed to marshal headers for %s: %v", result.URL, err)
-				headersJSON = "{}"
-			}
-		} else {
-			headersJSON = "{}"
-		}
-
-		// Create AssetResponse record
-		assetResponse := &database.AssetResponse{
-			AssetID:      asset.ID,
-			StatusCode:   result.StatusCode,
-			Headers:      headersJSON,
-			Body:         result.Body,
-			ResponseTime: result.ResponseTime,
-		}
-
-		// Save to database
-		if err := s.assetRepo.CreateAssetResponse(ctx, assetResponse); err != nil {
-			logrus.Warnf("Failed to save asset response for %s: %v", result.URL, err)
-		} else {
-			savedCount++
-			logrus.Debugf("Saved detailed response for %s (status: %d, body size: %d bytes)",
-				result.URL, result.StatusCode, len(result.Body))
-		}
-	}
-
-	logrus.Infof("Saved %d detailed HTTPX responses to database", savedCount)
-}
-
 // filterOutOfScopeSubdomains filters out subdomains that match out-of-scope assets
 func (s *MonitorService) filterOutOfScopeSubdomains(subdomains []string, outOfScopeAssets []*platforms.ScopeAsset) []string {
 	var filteredSubdomains []string
@@ -1003,6 +933,44 @@ func (s *MonitorService) matchesOutOfScopeAsset(subdomainURL string, outOfScopeA
 		// For other types, don't filter
 		return false
 	}
+}
+
+// isValidPrimaryAsset checks if a scope asset is valid for saving as a primary asset
+func (s *MonitorService) isValidPrimaryAsset(asset *platforms.ScopeAsset) bool {
+	// Skip empty URLs
+	if strings.TrimSpace(asset.URL) == "" {
+		return false
+	}
+
+	// Skip wildcard URLs - they should not be saved as primary assets
+	// Wildcards are used for ChaosDB discovery but not as direct primary assets
+	if asset.Type == "wildcard" {
+		return false
+	}
+
+	// For URL type assets, validate the URL
+	if asset.Type == "url" {
+		// Extract domain from URL for validation
+		domain, err := s.urlProcessor.ExtractDomain(asset.URL)
+		if err != nil {
+			logrus.Debugf("Invalid URL for primary asset: %s (error: %v)", asset.URL, err)
+			return false
+		}
+
+		// Validate the domain
+		if !s.urlProcessor.IsValidDomain(domain) {
+			logrus.Debugf("Invalid domain for primary asset: %s (domain: %s)", asset.URL, domain)
+			return false
+		}
+
+		// Skip if it's still a wildcard pattern (shouldn't happen but double-check)
+		if s.urlProcessor.IsWildcardDomain(domain) {
+			logrus.Debugf("Wildcard domain filtered from primary assets: %s", asset.URL)
+			return false
+		}
+	}
+
+	return true
 }
 
 // ProgramStats represents program statistics

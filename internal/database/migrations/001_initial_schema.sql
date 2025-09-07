@@ -83,16 +83,6 @@ BEGIN
     END IF;
 END $$;
 
--- Create asset_responses table
-CREATE TABLE IF NOT EXISTS asset_responses (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    asset_id UUID NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
-    status_code INTEGER NOT NULL,
-    headers TEXT, -- JSON encoded headers
-    body TEXT,
-    response_time BIGINT NOT NULL, -- in milliseconds
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
-);
 
 -- Create scans table
 CREATE TABLE IF NOT EXISTS scans (
@@ -146,17 +136,6 @@ BEGIN
         CREATE INDEX idx_assets_created_at ON assets(created_at);
     END IF;
     
-    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_asset_responses_asset_id') THEN
-        CREATE INDEX idx_asset_responses_asset_id ON asset_responses(asset_id);
-    END IF;
-    
-    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_asset_responses_status_code') THEN
-        CREATE INDEX idx_asset_responses_status_code ON asset_responses(status_code);
-    END IF;
-    
-    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_asset_responses_created_at') THEN
-        CREATE INDEX idx_asset_responses_created_at ON asset_responses(created_at);
-    END IF;
     
     IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_scans_program_id') THEN
         CREATE INDEX idx_scans_program_id ON scans(program_id);

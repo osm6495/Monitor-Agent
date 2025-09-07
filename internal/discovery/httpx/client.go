@@ -95,10 +95,12 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 
 	// Create HTTPX runner options with more conservative settings for reliability
 	options := &runner.Options{
+		Probe:           true,
+		OmitBody:        true,
 		InputTargetHost: urls,
 		RateLimit:       c.config.RateLimit,
 		Threads:         c.config.Concurrency,
-		Timeout:         int(c.config.Timeout.Seconds()),
+		Timeout:         5,
 		FollowRedirects: c.config.FollowRedirects,
 		MaxRedirects:    c.config.MaxRedirects,
 		Silent:          true, // Suppress HTTPX output for cleaner operation
@@ -107,8 +109,6 @@ func (c *Client) ProbeDomains(ctx context.Context, domains []string) ([]ProbeRes
 		CSVOutput:       false,
 		Verbose:         c.config.Debug, // Use config debug setting
 		Debug:           c.config.Debug, // Use config debug setting
-		// Add retry configuration for better reliability
-		Retries: 2,
 		OnResult: func(result runner.Result) {
 			// Process result immediately as it arrives
 			probeResult := ProbeResult{

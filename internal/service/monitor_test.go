@@ -320,3 +320,95 @@ func TestMonitorService_OutOfScopeAssetIsolation(t *testing.T) {
 	}
 	assert.ElementsMatch(t, expectedCombined, combinedFiltered, "Combined filtering should work correctly")
 }
+
+func TestMonitorService_IsValidPrimaryAsset(t *testing.T) {
+	service := &MonitorService{
+		urlProcessor: utils.NewURLProcessor(),
+	}
+
+	tests := []struct {
+		name     string
+		asset    *platforms.ScopeAsset
+		expected bool
+	}{
+		{
+			name: "valid URL asset",
+			asset: &platforms.ScopeAsset{
+				URL:    "https://example.com",
+				Domain: "example.com",
+				Type:   "url",
+			},
+			expected: true,
+		},
+		{
+			name: "valid URL asset with subdomain",
+			asset: &platforms.ScopeAsset{
+				URL:    "https://subdomain.example.com",
+				Domain: "subdomain.example.com",
+				Type:   "url",
+			},
+			expected: true,
+		},
+		{
+			name: "wildcard asset should be filtered",
+			asset: &platforms.ScopeAsset{
+				URL:    "https://example.com",
+				Domain: "example.com",
+				Type:   "wildcard",
+			},
+			expected: false,
+		},
+		{
+			name: "empty URL should be filtered",
+			asset: &platforms.ScopeAsset{
+				URL:    "",
+				Domain: "",
+				Type:   "url",
+			},
+			expected: false,
+		},
+		{
+			name: "whitespace URL should be filtered",
+			asset: &platforms.ScopeAsset{
+				URL:    "   ",
+				Domain: "   ",
+				Type:   "url",
+			},
+			expected: false,
+		},
+		{
+			name: "invalid domain should be filtered",
+			asset: &platforms.ScopeAsset{
+				URL:    "https://invalid-domain-with-no-dots",
+				Domain: "invalid-domain-with-no-dots",
+				Type:   "url",
+			},
+			expected: false,
+		},
+		{
+			name: "wildcard domain should be filtered",
+			asset: &platforms.ScopeAsset{
+				URL:    "https://*.example.com",
+				Domain: "*.example.com",
+				Type:   "url",
+			},
+			expected: false,
+		},
+		{
+			name: "IP address should be valid",
+			asset: &platforms.ScopeAsset{
+				URL:    "https://192.168.1.1",
+				Domain: "192.168.1.1",
+				Type:   "url",
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := service.isValidPrimaryAsset(tt.asset)
+			assert.Equal(t, tt.expected, result, "Asset %+v should have validity %v", tt.asset, tt.expected)
+		})
+	}
+}

@@ -34,17 +34,6 @@ type Asset struct {
 	UpdatedAt  time.Time `db:"updated_at" json:"updated_at"`
 }
 
-// AssetResponse represents HTTP response information for an asset
-type AssetResponse struct {
-	ID           uuid.UUID `db:"id" json:"id"`
-	AssetID      uuid.UUID `db:"asset_id" json:"asset_id"`
-	StatusCode   int       `db:"status_code" json:"status_code"`
-	Headers      string    `db:"headers" json:"headers"` // JSON encoded headers
-	Body         string    `db:"body" json:"body"`
-	ResponseTime int64     `db:"response_time" json:"response_time"` // in milliseconds
-	CreatedAt    time.Time `db:"created_at" json:"created_at"`
-}
-
 // PlatformEntity represents a bug bounty platform entity in the database
 type PlatformEntity struct {
 	ID          uuid.UUID `db:"id" json:"id"`
@@ -70,9 +59,8 @@ type Scan struct {
 
 // Table names
 const (
-	TablePrograms       = "programs"
-	TableAssets         = "assets"
-	TableAssetResponses = "asset_responses"
-	TablePlatforms      = "platforms"
-	TableScans          = "scans"
+	TablePrograms  = "programs"
+	TableAssets    = "assets"
+	TablePlatforms = "platforms"
+	TableScans     = "scans"
 )
